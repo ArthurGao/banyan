@@ -89,3 +89,25 @@ docker compose exec -T db pg_restore -U banyan -d banyan --clean < banyan-YYYY-M
 ## 7. 验收（设计 §12 B6）
 
 手机浏览器经 Tailscale 完成一遍：建主题 → 大纲 → 讲解 → 支线提问（含快速提问）→ 反馈 → 笔记 → 导出 HTML。
+
+## 8. 宿主机常驻（Claude 订阅，owner 2026-11-13）
+
+容器连不到 llm-gateway（第 3 节），所以要用 Claude 订阅（`claude-sub`）就在宿主机上跑。一条命令启停，**不开机自启**：
+
+```bash
+deploy/host/banyan-host.sh up [--build]   # Ollama（brew services run）→ llm-gateway → llm-steward → Banyan（先 migrate）
+deploy/host/banyan-host.sh status         # 各服务健康与 Banyan 的分层检查
+deploy/host/banyan-host.sh logs banyan    # gateway | steward | banyan，日志在 ~/Library/Logs/banyan/
+deploy/host/banyan-host.sh down           # 全部停掉（含 Ollama）
+```
+
+- 三个服务是 launchd job（`dev.banyan.llm-gateway`、`dev.banyan.llm-steward`、`dev.banyan.api`），plist 在
+  `~/.local/share/banyan/launchd/`、不在 `~/Library/LaunchAgents`：只在 `up` 时加载，崩溃自动重启，`down` 或注销后停止。
+  重启电脑后再跑一次 `up`。
+- 端口（8787、8600、8800）被别的进程占着时 `up` 停下并说明是谁，不会杀它。
+- 配置都来自各自的文件，脚本不打印密钥：llm-gateway 的配置、llm-steward 的 `.env`（steward 用 lite-rag + lite-mem 进程内，
+  `deploy/host/run-steward.sh`）、Banyan 的 `backend/.env`（`BANYAN_ROLES_FILE=roles.yaml`、steward 两把 key、Tavily key）与
+  `backend/roles.yaml`（全部 role 走 `gateway/claude-sub`）。
+- 前端改了以后 `up --build`（或 `cd frontend && pnpm build`，Banyan 直接读新的 `dist/`）。
+- 手机访问照第 5 节用 `tailscale serve`。
+- 2026-11-13 验证：`up` 四个服务健康、`kill` Banyan 进程后 launchd 15 秒内拉起、launchd 环境下 `claude-sub` 能调用、`down` 后无残留、再 `up` 恢复。

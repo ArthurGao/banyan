@@ -99,6 +99,7 @@ implement the conservative option behind config.
 docker compose up -d db                         # PostgreSQL + pgvector
 cd backend && uv run banyan migrate             # Alembic upgrade head
 cd backend && uv run banyan serve               # API on 127.0.0.1:8800
+deploy/host/banyan-host.sh up | status | down    # host stack with the Claude subscription (deploy/README.md §8)
 cd backend && uv run banyan worker              # job worker alone (serve also runs one unless BANYAN_RUN_WORKER=false)
 cd backend && uv run pytest                     # unit + integration, fakes only
 cd backend && uv run ruff check && uv run ruff format --check && uv run mypy && uv run lint-imports
