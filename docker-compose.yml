@@ -1,0 +1,21 @@
+# PostgreSQL + pgvector for CI-like runs and deployment. Local development uses the shared
+# server on 5432 instead (KB global/machine/local-services.md); this one listens on 5472.
+services:
+  db:
+    image: pgvector/pgvector:0.8.6-pg18
+    environment:
+      POSTGRES_USER: banyan
+      POSTGRES_PASSWORD: ${BANYAN_DB_PASSWORD:?set BANYAN_DB_PASSWORD in .env}
+      POSTGRES_DB: banyan
+    ports:
+      - "127.0.0.1:5472:5432"
+    volumes:
+      - banyan-db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banyan -d banyan"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  banyan-db:

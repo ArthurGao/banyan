@@ -20,7 +20,7 @@ src/banyan/
   llm/               role layer: roles.py (Role enum, resolve), client.py (Pydantic AI wrapper),
                      fakes.py (FakeLLM), usage.py (token accounting)
   tools/             agent tools: kb_search, web_search, web_fetch; search/ providers (Protocol + adapters)
-  steward/           StewardClient Protocol, HttpStewardClient (over the steward SDK), FakeSteward, mapping.py
+  steward/           StewardClient Protocol, HttpStewardClient (httpx + the SDK's models), FakeSteward, mapping.py
   jobs/              generic job runtime: claim (SKIP LOCKED), lease recovery, retry with backoff,
                      dead-letter, idempotency and dedupe keys; imports nothing else from banyan
   worker/            `banyan worker` entry point and job handlers (node_explain, kb_propose, notes_update, …)
@@ -37,7 +37,8 @@ tests/
 
 `api` → `services` → `pipeline` | `export` → `llm` | `tools` | `steward` → `models` → `storage`.
 `services`, `pipeline`, `llm`, `tools`, `steward`, `export`, `models`, `storage` must not import FastAPI or
-Starlette. Only `llm/` imports `pydantic_ai` or any vendor SDK. Only `steward/` knows steward's wire format and imports `llm_steward_client`.
+Starlette. Only `llm/` imports `pydantic_ai` or any vendor SDK. Only `steward/` knows steward's wire format and imports `llm_steward_client`
+(its generated models; requests go out on httpx so Banyan's own idempotency keys are sent).
 Only `tools/search/` knows a search vendor's wire format. `jobs/` is standalone: it may import only
 `storage` primitives it is given and the standard library, never `services`, `pipeline` or `models`, so
 it can be moved to its own package later (design §2). `worker/` sits beside `api/` at the top layer.
@@ -56,8 +57,9 @@ orchestrating function does no I/O itself.
    (e.g. `kb_propose:<message_id>`); steward writes send it as `Idempotency-Key`, which steward keeps for
    24 hours, so all retries of a job must finish within 24 hours of the first attempt. Workers claim with
    `FOR UPDATE SKIP LOCKED` and a lease (`locked_at`/`locked_by`); an expired lease makes the job
-   claimable again (design §4). The steward client a worker builds has `max_retries=0`: the job's own
-   retry and backoff are the only retry layer, and every attempt reuses the job's key.
+   claimable again (design §4). The job's retry and backoff are the only retry layer (the steward
+   client has none), and every attempt reuses the job's key. A steward 4xx (`StewardRejected`) is final:
+   steward replays it under that key for 24 hours, so the job goes `dead` at once instead of retrying.
 5. **Budgets are config, not literals.** `BANYAN_ANSWER_MAX_STEPS`, `BANYAN_ANSWER_MAX_TOKENS`,
    `BANYAN_JUDGE_THRESHOLD`, retrieval `top_k` and the context token budget live in `Settings`.
 6. **Token usage is recorded for every LLM provider attempt**, including judges, failed calls, timeouts
@@ -78,7 +80,7 @@ orchestrating function does no I/O itself.
 - Integration tests use a throwaway schema `banyan_test` on the dev PostgreSQL
   (`BANYAN_TEST_DATABASE_URL`), never the app schema.
 - Opt-in markers: `-m llm` (real models via configured roles), `-m search` (real search API),
-  `-m steward` (contract tests against steward: the SDK's embedded mode in-process, and a running steward
-  for engine-specific behaviour such as sync latency and risk grading).
+  `-m steward` (contract tests on steward's embedded mode, in-process; needs `uv sync --group contract`),
+  `-m steward_live` (against a running steward: sync latency, rerank scores, risk grading).
 - Retrieved or fetched text never reaches a template unwrapped: tests check that a forged closing tag in
   a source is escaped and that the nonce differs per call (design §6.2).

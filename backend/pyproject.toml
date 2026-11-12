@@ -1,0 +1,147 @@
+[project]
+name = "banyan"
+version = "0.1.0"
+description = "KB-first personal AI learning system"
+license = "Apache-2.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "alembic>=1.14",
+    "httpx>=0.27",
+    "typer>=0.15",
+    # Response models generated from steward's OpenAPI; used only inside banyan.steward.
+    "llm-steward-client",
+]
+
+[project.scripts]
+banyan = "banyan.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "import-linter>=2.1",
+    "pre-commit>=4.0",
+]
+# `uv sync --group contract`: llm-steward itself, to run the contract tests on its embedded mode
+# (`-m steward`). Heavy and never needed to run Banyan.
+contract = [
+    "llm-steward[native]",
+    "llm-steward-client[embedded]",
+]
+
+[build-system]
+requires = ["uv_build>=0.10,<0.11"]
+build-backend = "uv_build"
+
+# Both from the steward repo, pinned to one commit: upgrading means moving both and re-running
+# `pytest -m steward` (design §8.3).
+[tool.uv.sources]
+llm-steward-client = { git = "https://github.com/ArthurGao/llm-steward", rev = "52a8d07ba216c1dde575d90c52795104032a3ba4", subdirectory = "sdk/python" }
+llm-steward = { git = "https://github.com/ArthurGao/llm-steward", rev = "52a8d07ba216c1dde575d90c52795104032a3ba4", subdirectory = "backend" }
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "RUF"]
+# Full-width punctuation is intentional in Chinese prompt text.
+allowed-confusables = ["：", "（", "）", "！", "？"]
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+packages = ["banyan"]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# Real services are opt-in (AGENTS.md rule 8).
+addopts = "-m 'not llm and not search and not steward and not steward_live' --strict-markers"
+markers = [
+    "llm: real models through the configured roles (opt-in: -m llm)",
+    "search: the real search API (opt-in: -m search)",
+    "steward: contract tests on llm-steward's embedded mode, in-process (opt-in: -m steward; needs `uv sync --group contract`)",
+    "steward_live: contract tests against a running llm-steward (opt-in: -m steward_live; needs BANYAN_STEWARD_URL and BANYAN_STEWARD_API_KEY)",
+]
+filterwarnings = ["ignore::DeprecationWarning:jieba.*"]
+
+[tool.importlinter]
+root_package = "banyan"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layers (backend/AGENTS.md)"
+type = "layers"
+layers = [
+    "banyan.api | banyan.worker",
+    "banyan.services",
+    "banyan.pipeline | banyan.export",
+    "banyan.llm | banyan.tools | banyan.steward",
+    "banyan.models",
+    "banyan.storage",
+]
+
+[[tool.importlinter.contracts]]
+name = "Below the API, nothing depends on the web framework"
+type = "forbidden"
+source_modules = [
+    "banyan.services",
+    "banyan.pipeline",
+    "banyan.export",
+    "banyan.llm",
+    "banyan.tools",
+    "banyan.steward",
+    "banyan.models",
+    "banyan.storage",
+    "banyan.jobs",
+]
+forbidden_modules = ["fastapi", "starlette"]
+
+[[tool.importlinter.contracts]]
+name = "Only banyan.steward knows the steward SDK (AGENTS.md rule 1)"
+type = "forbidden"
+source_modules = [
+    "banyan.api",
+    "banyan.worker",
+    "banyan.services",
+    "banyan.pipeline",
+    "banyan.export",
+    "banyan.llm",
+    "banyan.tools",
+    "banyan.models",
+    "banyan.storage",
+    "banyan.jobs",
+]
+forbidden_modules = ["llm_steward_client"]
+
+[[tool.importlinter.contracts]]
+name = "The job runtime is standalone (design §2): no Banyan business code"
+type = "forbidden"
+source_modules = ["banyan.jobs"]
+forbidden_modules = [
+    "banyan.api",
+    "banyan.worker",
+    "banyan.services",
+    "banyan.pipeline",
+    "banyan.export",
+    "banyan.llm",
+    "banyan.tools",
+    "banyan.steward",
+    "banyan.models",
+]
+
+[[tool.importlinter.contracts]]
+name = "Knowledge and memory engines are reached only through steward (AGENTS.md rule 1)"
+type = "forbidden"
+source_modules = ["banyan"]
+forbidden_modules = ["lite_rag", "lite_mem", "mem0", "llm_steward"]

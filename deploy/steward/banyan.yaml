@@ -1,0 +1,15 @@
+# llm-steward namespace config for Banyan (design §8.1). Apply (replaces the whole config):
+#   docker compose cp deploy/steward/banyan.yaml steward-standard:/tmp/banyan.yaml
+#   docker compose exec steward-standard steward ns apply -f /tmp/banyan.yaml
+# Keys: one with scopes read+write (BANYAN_STEWARD_API_KEY) and one with review
+# (BANYAN_STEWARD_REVIEW_KEY, only for creating collections and deprecating entries).
+slug: banyan
+name: Banyan
+retrieval:
+  top_k: 8
+  token_budget: 3000        # matches BANYAN_CONTEXT_BUDGET
+  rerank: true              # steward's own cross-encoder; steward sends lite-rag hybrid without rerank
+  min_relevance: null       # calibrate on real questions in B3 before turning on (rerank scores only)
+  context_language: auto
+kb:
+  high_risk_keywords: []    # open: how this combines with steward's built-in rules (tests/contract/test_steward_live.py)

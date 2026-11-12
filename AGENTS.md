@@ -38,15 +38,16 @@ If a change must contradict the design, update the design in the same change and
 
 ## Current stage
 
-**B0 — scaffold — next.** Nothing is built yet. Track the checklist in design §12; ticked items are done
+**B0 — scaffold — in close-out** (backend, contract spike and CI written; the frontend scaffold is
+another session's; CI runs on the first push). B1 next. Track the checklist in design §12; ticked items are done
 and verified. Open questions are in design §13 — do not decide them silently; ask, or implement the
 conservative option behind config.
 
 ## Non-negotiable rules
 
 1. **Knowledge and memory go through steward only.** Banyan never imports `lite_rag`, `lite_mem` or `mem0`,
-   never calls lite-rag's or lite-mem's HTTP API, and never writes vectors anywhere. The steward SDK is used only
-   inside `HttpStewardClient`. All KB reads, KB writes (proposals), feedback,
+   never calls lite-rag's or lite-mem's HTTP API, and never writes vectors anywhere. The steward SDK is imported only
+   inside `banyan.steward`. All KB reads, KB writes (proposals), feedback,
    episodes and memory candidates use the `StewardClient` (design §8).
 2. **Two sources of truth, linked by id.** Banyan's DB owns the learning tree, branches, messages, notes,
    usage and jobs. Steward owns governed knowledge and memory. Banyan stores steward ids
@@ -76,9 +77,9 @@ conservative option behind config.
 
 ## Tech stack
 
-- Backend: Python 3.12, uv, FastAPI + Pydantic v2, SQLAlchemy 2 async + Alembic, PostgreSQL 16 + pgvector
+- Backend: Python 3.12, uv, FastAPI + Pydantic v2, SQLAlchemy 2 async + Alembic, PostgreSQL 18 + pgvector
   (shared instance, Banyan uses schema `banyan`), Pydantic AI (provider adapters and the
-  `answer.compose` agent loop), the llm-steward Python SDK (git dependency, pinned commit), httpx, Jinja2, sse-starlette, Typer, pytest, ruff, mypy (strict),
+  `answer.compose` agent loop), the llm-steward Python SDK's generated models (git dependency, pinned commit), httpx, Jinja2, sse-starlette, Typer, pytest, ruff, mypy (strict),
   import-linter.
 - Frontend: React 18, Vite, TypeScript (strict), Tailwind, shadcn/ui, TanStack Query, React Router,
   `@hey-api/openapi-ts`, react-markdown + remark-gfm + rehype-katex + Shiki, vite-plugin-pwa, Vitest,
@@ -105,5 +106,14 @@ cd frontend && pnpm dev | pnpm build | pnpm test | pnpm lint | pnpm typecheck | 
 2. Write tests with fakes first for anything in the ask pipeline, the role layer or the steward client.
 3. Implement in small commits; keep the import-linter layers green.
 4. Run every check (backend and frontend) before reporting.
-5. Close out the stage as `CLAUDE.md` describes, tick the checklist in design §12, record decisions and
-   lessons in the project KB.
+5. **Close out every stage, in this order, once its code is done and every check passes** (details and
+   the exact Codex command in `CLAUDE.md` § Stage close-out):
+   1. `/simplify` on the stage's whole diff; apply its fixes; re-run every check.
+   2. Codex review (`codex exec -s read-only …`) on the stage's whole diff.
+   3. Judge every finding against the code: confirmed, or rejected with a reason.
+   4. Fix every confirmed finding (a bug fix starts with a failing test); re-run Codex on the fix diff
+      when the fixes are large or touch design §4, §6 or §8.
+   5. Re-run every check and the stage's acceptance list.
+   6. Tick the stage in design §12 with a close-out note (what simplify and Codex changed, what was
+      rejected and why), record decisions and lessons in the project KB, then propose the commit and wait.
+   Do not start or plan the next stage before this is done.

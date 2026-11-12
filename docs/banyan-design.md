@@ -71,7 +71,7 @@
 | 知识与记忆 | 全部经 llm-steward | steward 已提供治理（候选 → 确认 → 生效、失效不删除）、联合检索、反馈、MCP；Banyan 不重复造 |
 | KB 引擎 | lite-rag，作为 steward 的 `LiteRagProvider`，进程内模式 | 混合检索（BM25 + 向量 + RRF）、多 kb 联合检索；rerank 由 steward 自己做（§8.1）；单机少一个服务 |
 | 记忆引擎 | steward 配置的记忆引擎，默认 lite-mem（2026-11-12 起；mem0 仍可选） | Banyan 不感知引擎：只经 steward 的 REST。lite-mem 自己抽取并消解冲突（新偏好取代旧偏好），向量用 bge-m3，与 lite-rag 一致 |
-| 数据库 | PostgreSQL 16 + pgvector，一个实例多个 schema | steward 及其引擎（lite-mem、lite-rag）共用；Banyan 用 `banyan` schema |
+| 数据库 | PostgreSQL 18 + pgvector（与本机共享实例、CI 镜像一致），一个实例多个 schema | steward 及其引擎（lite-mem、lite-rag）共用；Banyan 用 `banyan` schema |
 | 编排 | 确定性 pipeline + 单步 agent loop | 路由可预测、成本可控；只有作答一步需要工具循环 |
 | 模型层 | Pydantic AI，包在 role 层后面 | 原生多 provider、结构化输出校验、工具调用；与 steward/lite-rag 的 role 约定一致 |
 | 联网 | 自有 `web_search` / `web_fetch` 工具 | 各模型内置搜索不统一，DeepSeek 没有；自有工具保证一致 |
@@ -207,6 +207,9 @@ exports
   任务由其他 worker 重领。重试指数退避，`attempts ≥ BANYAN_JOB_MAX_ATTEMPTS` 进 `dead`。**所有重试必须在首次尝试后
   24 小时内结束**（steward 的 `Idempotency-Key` 只保留 24 小时，§8.4），所以退避上限与最大次数的乘积受此约束。
 - `idempotency_key` 由业务来源派生（如 `kb_propose:<message_id>`），不是随机值，重试复用同一个。
+- **steward 的 4xx 是终态**：steward 把 4xx 答复存在该幂等键下并在 24 小时内原样重放（只有 5xx 释放键，B0 spike 实测）。所以
+  `StewardRejected`（4xx）让任务直接进 `dead`，不重试；修好原因（如 key 缺 scope）后由人重新入队，新任务带新的键
+  （原键加 `:<n>` 后缀）。`StewardUnavailable`（网络、超时、5xx）照常退避重试。
 
 ## 5. 学习流程
 
@@ -449,7 +452,10 @@ Fetcher
   与 steward 的命中 / 无用率扫描，所以接受这个例外。另一个问题：`EntryCreate` 没有作者类型，API 写入默认记为 `human`，作者记录不真实。
   v1 用 tag `author:ai` 标明，并向 steward 提 `EntryCreate.author_type` 的变更需求（§13）。
 - KB 审核策略：steward 的 `POST /v1/kb/collections` 接受 `review_policy`（`{"low": "auto"|"user"|"review", "medium": …}`，high 永远进审核）。Banyan 建 collection 时传 `{"low": "auto", "medium": "auto"}`，提议条目时**不传 `user_id`**（steward 对 medium 的规则是"问 user_id，没有则直接生效"）。steward 仍会用规则 + 自己的 LLM 重新定级并取较高者，所以被判 high 的内容（价格、法务、医疗、安全类关键词或 PII）会进审核队列、暂不可检索。这是预期行为（§13 第 2 条已由此解决）。
-- Banyan 的 API key 需要 `read`、`write`、`review` 三个 scope：`deprecate` 端点要求 `review`（steward 设计 §7）。单用户系统，这不扩大权限面。
+- **两把 key**（B0 spike 修正 v0.3 的单 key 方案）：`BANYAN_STEWARD_API_KEY`（`read`、`write`）用于检索、提议条目、反馈、episode；
+  `BANYAN_STEWARD_REVIEW_KEY`（`review`）只用于建 collection 与 deprecate（这两个端点要求 review scope）。原因：steward 把带 review
+  scope 的 key 写入的条目直接记为 `verified`（"reviewer's writes go live verified"），单 key 会让 Banyan 的模型答案全部冒充审核过的知识，
+  检索时还按信任度加权。
 - steward 用 `Idempotency-Key` 请求头做写入幂等，保留 24 小时；`/v1/retrieve` 忽略它。
 
 ### 8.2 映射
@@ -470,13 +476,16 @@ Fetcher
 
 ```
 class StewardClient(Protocol):
-    async def ensure_collection(topic) -> str                       # POST /v1/kb/collections（幂等：先 GET 按 name 查）
-    async def retrieve(query, *, collections, tags, include_memory,
-                       top_k, token_budget) -> RetrievalResult     # POST /v1/retrieve；返回 retrieval_id、items、context、degraded
-    async def create_entry(collection_id, title, content, tags, risk_level,
-                           *, idempotency_key) -> str              # POST /v1/kb/entries → entry id（low/medium 立即 active）
-    async def feedback(retrieval_id, item_id, helpful, note) -> None
-    async def deprecate_entry(entry_id, reason) -> None            # 需要 review scope
+    async def ensure_collection(name, *, review_policy, idempotency_key) -> str
+                                                                    # GET 按 name 查，没有则 POST（review key；键由调用方派生，如 collection_ensure:<topic_id>）
+    async def retrieve(query, *, user_id, collections, tags, include_memory,
+                       top_k, token_budget, as_context) -> RetrievalResult
+                                                                    # POST /v1/retrieve；collections 是 collection **名字**；
+                                                                    # include_memory → sources=[memory, kb] 或 [kb]
+    async def create_entry(collection_id, *, title, content, tags, risk_level,
+                           idempotency_key) -> ProposedEntry        # POST /v1/kb/entries → entry_id（生效）或 candidate_id（待审）
+    async def feedback(retrieval_id, item_id, *, helpful, note, idempotency_key) -> None
+    async def deprecate_entry(entry_id, *, idempotency_key) -> None # review key；steward 不收理由，理由记在 Banyan 的任务里
     async def submit_episode(user_id, agent_id, session_id, messages,
                              *, idempotency_key) -> str            # POST /v1/episodes mode=async → episode_id
     async def list_memories(user_id) -> list[Memory]               # GET /v1/memories?user_id=
@@ -486,16 +495,22 @@ class StewardClient(Protocol):
     async def health() -> Health
 ```
 
-`RetrievalResult.items` 保留 steward 的 `id`（即反馈用的 `item_id`）、`kind`（memory | entry | document）、`status`、`score`、`tags`。实现：
+`RetrievalResult.items` 保留 steward 的 `id`（即反馈用的 `item_id`；条目的 item id 就是 entry id）、`kind`（memory | entry | document）、`status`、`score`、
+`title`、`content`。**检索结果不带 tags**（`RetrievedItemOut` 没有这个字段），所以 §8.2 里按 `valid_to:` tag 过滤过期条目要另想办法：
+B3 决定是把有效期写进 `content` 末尾的来源行由 Banyan 解析，还是按 entry id 回查（多一次请求）。B0 前三个方法以外的接口（episode、记忆、候选）
+在 B3 / B5 加入。实现：
 
-- `HttpStewardClient` 内部用 steward 的 Python SDK `AsyncSteward`（从 OpenAPI 生成的类型；每个写入都带 `Idempotency-Key`，可由调用方传入）。
-  SDK 不在 PyPI，`pyproject.toml` 用 git 依赖并锁定到一个 commit，升级时重跑契约测试。业务代码只见 `StewardClient` Protocol，不导入 SDK。
-- **重试不叠加**：SDK 自带重试（408 / 429 / 5xx / 网络错误，`max_retries`）。worker 的任务已有自己的重试与退避（§4），worker 里构造的客户端
-  `max_retries=0`；请求内的检索用 SDK 默认的少量重试，但总时长受 `BANYAN_ROLE_TIMEOUT_S` 同级的超时约束。幂等键由 Banyan 按来源派生（§4），
-  SDK 重试与 worker 重试都复用同一个键。
+- `HttpStewardClient` 用 httpx 直接调 steward 的 REST，响应用 SDK 生成的模型 `llm_steward_client.models` 解析（steward 改了契约这里就会报错）。
+  **不用 SDK 的客户端发请求**：B0 核实 SDK 每次写入自己生成随机 UUID 作为 `Idempotency-Key`，调用方没法传入（v0.3 写"可由调用方传入"是错的）；
+  Banyan 需要按来源派生的键，worker 几小时后的重试才能重放第一次的结果。已向 steward 提变更需求（§13）。SDK 不在 PyPI，用 git 依赖锁定到一个
+  commit（`backend/pyproject.toml`），升级时重跑契约测试。业务代码只见 `StewardClient` Protocol，import-linter 禁止其他包导入 SDK。
+- **没有客户端重试**：请求内的检索失败就降级（§6.2），worker 任务有自己的重试与退避（§4），只有这一层。错误分两类：`StewardUnavailable`
+  （网络、超时、5xx）与 `StewardRejected`（4xx，§4 规定为终态）。`/health` 探测 steward 的 `GET /health`（SDK 没有这个调用），上限 3 秒。
 - `FakeSteward`：同样实现 tags AND 过滤、`review_policy`、24 小时幂等。日常测试只用它。
-- 契约测试 `-m steward` 两个目标：(1) SDK 的嵌入模式 `await AsyncSteward.embedded("sqlite+aiosqlite:///...")`（extra `embedded`），在测试进程里跑真 steward（native 引擎），
-  不用起服务，适合 CI 的可选 job；(2) 本机运行中的 steward（lite-rag + lite-mem），验证同步延迟、定级等引擎相关行为。两者都验证 §8.3 每个方法。
+- 契约测试两个目标：(1) `-m steward`：SDK 的嵌入模式 `await AsyncSteward.embedded("sqlite+aiosqlite:///...", app_overrides={"embedder": …})`
+  （`uv sync --group contract`），测试进程里跑真 steward（native 引擎、假 embedder、不下载模型），CI 的 `contract` job 每次都跑；
+  嵌入模式只有一个调用方身份，且忽略 `Authorization`，所以 review key 的路由由单元测试覆盖。(2) `-m steward_live`：本机运行中的 steward
+  （lite-rag + lite-mem，应用 `deploy/steward/banyan.yaml`），验证同步延迟、rerank 分数、定级等引擎相关行为；缺环境变量时失败而不是跳过。
 
 ### 8.4 写入时序
 
@@ -627,20 +642,36 @@ error     {code, message}
 
 ## 12. 实施计划（给 Claude Code）
 
-每个阶段：plan mode 起步 → 测试先行 → 实现 → 全部检查通过 → close-out（`CLAUDE.md`）→ 勾选本节清单 → 写 KB。
+每个阶段：plan mode 起步 → 测试先行 → 实现 → 全部检查通过 → **收尾**：`/simplify` 并应用修改、重跑检查 → Codex review →
+逐条判断成立与否 → 修改成立的（bug 先写失败的测试；改动大或涉及 §4、§6、§8 时对修改再跑一次 Codex）→ 重跑全部检查与验收 →
+勾选本节清单并写收尾记录 → 写 KB → 提议提交、等 owner 同意。命令与细节见 `CLAUDE.md` § Stage close-out。
 
 ### B0 — 脚手架
 
-- [ ] monorepo：`backend/`（uv、ruff、mypy strict、import-linter、pytest、pre-commit）、`frontend/`（pnpm、Vite、TS strict、ESLint、Vitest、Playwright）
-- [ ] `docker-compose.yml`：`db`（pgvector 镜像，固定版本）；steward 以文档说明的方式在本机运行（宿主机 Ollama 需 `bge-m3:567m`，不配外部 LLM 时还需 `qwen3:8b`）
-- [ ] Settings、分层 `/health`、Alembic 基线（schema `banyan`）、CLI（serve / migrate / openapi）
-- [ ] **steward contract spike**（`tests/contract/`，`-m steward`，对运行中的 steward）：建 collection 带 `review_policy`
+- [x] monorepo：`backend/`（uv、ruff、mypy strict、import-linter、pytest、pre-commit）
+- [ ] `frontend/`（pnpm、Vite、TS strict、ESLint、Vitest、Playwright）：由另一个会话搭建（owner 2026-11-12 决定），B0 后端会话不碰
+- [x] `docker-compose.yml`：`db`（pgvector 镜像，固定版本）；steward 以文档说明的方式在本机运行（宿主机 Ollama 需 `bge-m3:567m`，不配外部 LLM 时还需 `qwen3:8b`）
+- [x] Settings、分层 `/health`、Alembic 基线（schema `banyan`）、CLI（serve / migrate / openapi）
+- [x] **steward contract spike**（`tests/contract/`，`-m steward`；嵌入模式已跑通，对运行中 steward 的 `-m steward_live` 已写、待跑）：建 collection 带 `review_policy`
       → `create_entry` 带 tags（低风险样本）→ 等 outbox 同步后 `retrieve` 带 `filters.tags` 与 `format=context` 命中
       → `feedback(retrieval_id, item_id)` → `deprecate` 成功（key 带 review scope）→ 同 `Idempotency-Key` 重放返回同一 id。
       → 应用 `deploy/steward/banyan.yaml` 后检查 rerank 的 `score` 范围与 `high_risk_keywords` 的叠加方式。
       spike 先在 SDK 嵌入模式跑通，再对本机 steward 跑一遍；结论（字段名、延迟、定级行为）写进 §8 与 KB，再开始 B1
-- [ ] CI：两端检查与测试
+- [ ] CI：两端检查与测试（`.github/workflows/ci.yml` 已写：backend、contract、frontend 三个 job；要 push 后看结果才算通过）
 - 验收：`banyan serve` + `/health` 绿；前端空壳在三个视口渲染；contract spike 全绿；CI 通过
+- **收尾记录（2026-11-12）**：
+  - 验收：`banyan serve` 后 `/health` 为 `ok`（db ok、steward / search not_configured）；后端 49 个测试与嵌入模式 contract spike 全绿，
+    关键断言都做过变异；`-m steward_live` 待 steward 运行；前端空壳曾在本会话三个视口通过 Playwright，之后交给另一个会话；CI 待 push。
+  - spike 改了设计：`retrieve.collections` 用名字（传 id 静默返回空）；review key 写入即 `verified`，改为两把 key（§8.1）；SDK 不收调用方的
+    幂等键，改为 httpx 直发 + SDK 模型（§8.3）；steward 对 4xx 按键重放 24 小时，4xx 是终态（§4）；检索结果不带 tags（§8.3，B3 待定）。
+  - /simplify：`_send` 拆成传输与状态映射两层，去掉只为一处服务的参数；review key 改为独立连接；steward 三项配置要么全有要么全无；
+    `build_app()` 与 `create_app()` 分开，`openapi` 不再伪造数据库 URL；`/health` 返回模型而非手写 JSONResponse；URL 路径里的 id 校验为 UUID；
+    测试共用 `app_client`；CI 的 uv 缓存按 job 分开。没采纳：用 SDK 私有的 `_api` 构造请求（不想依赖私有模块，契约测试兜底）；
+    测试设置走校验路径（`model_copy` 只绕过 `_test` 一条规则，steward 同样做法）；合并两个契约测试的轮询（期限不同是有意的）。
+  - Codex：三条成立并修复（先写失败的测试）——collection 创建用固定幂等键，4xx 后修好也会被重放（改为调用方传键）；空的
+    `BANYAN_STEWARD_URL=` 被当成已配置、空 key 能通过（空值视为未设，URL 校验）；嵌入模式的契约测试证明不了两把 key 的分工（收窄说明，
+    live 测试加 `active` 而非 `verified` 的断言）。修复后再跑 Codex：URL 只校验前缀（改为解析并要求主机），已修。
+  - 等价变异记录：去掉 `version_table_schema` 测试仍绿，因为 `search_path` 首位就是该 schema；保留作防护。
 
 ### B1 — 学习树（pipeline 骨架，无 RAG）
 
@@ -656,6 +687,7 @@ error     {code, message}
 
 ### B2 — 任务运行时、讲解生成方式、笔记与导出
 
+- [ ] `collection_ensure` 任务：`topics.steward_collection_id` 已有值就跳过（steward 的 collection 列表不分页、不按名字过滤，`ensure_collection` 每次都列全部，只该在首次和崩溃恢复时跑）
 - [ ] `banyan/jobs/` 通用任务运行时（领取 `SKIP LOCKED`、租约回收、重试、退避、死信、幂等键、`dedupe_key`）；import-linter 契约禁止它导入 Banyan 其他包；业务处理器在 `worker/handlers/` 注册
 - [ ] `node_explain` 任务（复用 pipeline，§6.0）；`explain_mode=prefetch` 与 `all`；`generation_runs`、估算、整次预算、并发上限、暂停 / 继续 / 取消、单节点重试；与交互式讲解的互斥
 - [ ] 前端：讲解生成方式选择、估算确认、进度条与节点状态
@@ -734,4 +766,5 @@ error     {code, message}
 | `EpisodeCreate.context` 或 metadata | 学习状态信号 | 附加 system 消息 |
 | namespace 级 `memory_policy: confirm` | 记忆先确认再生效 | 自动生效 + 可删除（§8.5） |
 | 按 entry 的反馈端点 | 不经 retrieval 的条目评价 | 只对本次检索的 item 反馈（§6.3） |
+| SDK 写入方法接受调用方的 `idempotency_key` | 用 SDK 客户端发请求，同时保留按来源派生的键 | httpx 直接调 REST，只用 SDK 的模型（§8.3） |
 | `EntryCreate.author_type`（`ai`） | 模型生成的条目如实记录作者，steward 的审核与统计能区分 | tag `author:ai`（§8.1、§8.2） |

@@ -1,0 +1,23 @@
+# Secrets: only .env.example files are tracked
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.import_linter_cache/
+
+# Node
+node_modules/
+dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+
+# OS
+.DS_Store
