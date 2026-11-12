@@ -24,7 +24,10 @@ async def run_ask(inp: AskInput, deps: Deps) -> AskResult:
 
     scopes = await steps.scope(inp, deps)
     # The first path event carries the placeholder's id (design §9).
-    await mark("scope", "ok", message_id=str(inp.message_id), scopes=len(scopes.scopes))
+    await mark(
+        "scope", "ok", message_id=str(inp.message_id), branch_id=str(inp.branch_id),
+        node_id=str(inp.node_id), scopes=len(scopes.scopes),
+    )  # fmt: skip
 
     # Independent, so concurrent; their path entries still come in a fixed order.
     fresh, found = await asyncio.gather(

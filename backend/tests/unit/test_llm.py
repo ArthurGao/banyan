@@ -153,6 +153,8 @@ VALID = {
         "judge.sufficiency": "ollama/qwen3:8b",
         "answer.from_kb": "ollama/qwen3:8b",
         "kb.draft_entry": "ollama/qwen3:8b",
+        "node.classify": "ollama/qwen3:8b",
+        "branch.compress": "ollama/qwen3:8b",
     },
 }  # fmt: skip
 
@@ -173,7 +175,13 @@ def test_a_valid_config_loads_and_builds_every_role(
     client = RoleClient.from_config(config, timeout_s=10)
     assert client.provenance(Role.JUDGE_FRESHNESS) == "judge.freshness:ollama:qwen3:8b"
     assert client.configured(Role.OUTLINE_GENERATE)
-    assert not client.configured(Role.BRANCH_COMPRESS)
+    # An optional role left unmapped is not configured (branch.compress, the example until B6,
+    # is required now; judge.freshness is the optional one left).
+    roles = {k: v for k, v in VALID["roles"].items() if k != "judge.freshness"}  # type: ignore[attr-defined]
+    partial = RoleClient.from_config(
+        load_roles(write(tmp_path, VALID | {"roles": roles})), timeout_s=10
+    )
+    assert not partial.configured(Role.JUDGE_FRESHNESS)
 
 
 @pytest.mark.parametrize(

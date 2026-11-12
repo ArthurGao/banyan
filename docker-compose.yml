@@ -17,5 +17,26 @@ services:
       timeout: 3s
       retries: 10
 
+  # The app (deploy/README.md): API + job worker + the built frontend. Settings and secrets from
+  # backend/.env (never in the image); the database is the service above.
+  banyan:
+    build:
+      context: .
+      target: ${BANYAN_BUILD_TARGET:-app}
+    env_file:
+      - path: backend/.env
+        required: false
+    environment:
+      BANYAN_DATABASE_URL: postgresql+asyncpg://banyan:${BANYAN_DB_PASSWORD:?set BANYAN_DB_PASSWORD in .env}@db:5432/banyan
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${BANYAN_PORT:-8800}:8800"
+    extra_hosts:
+      # Ollama and llm-steward run on the host (design §3): reach them as host.docker.internal.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
 volumes:
   banyan-db:

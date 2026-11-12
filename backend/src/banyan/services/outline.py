@@ -47,7 +47,9 @@ async def add_node(
     parent_id: uuid.UUID | None,
     position: int | None,
     origin: NodeOrigin,
+    commit: bool = True,
 ) -> Node:
+    """`commit=False`: flushed only, for a caller that commits it with more (quick ask)."""
     nodes = await topic_nodes(s, topic_id)
     by_id = {n.id: n for n in nodes}
     depth = _child_depth(by_id, parent_id)
@@ -59,7 +61,7 @@ async def add_node(
     s.add(node)
     siblings.insert(_clamp(position, len(siblings)), node)
     _renumber(siblings)
-    await s.commit()
+    await (s.commit() if commit else s.flush())
     return node
 
 
@@ -175,9 +177,13 @@ async def ordered_nodes(s: AsyncSession, topic_id: uuid.UUID) -> list[Node]:
     return in_order(await topic_nodes(s, topic_id))
 
 
-def outline_text(nodes: list[Node]) -> str:
-    """The outline as an indented list, for prompts."""
-    return "\n".join(f"{'  ' * n.depth}- {n.title}" for n in in_order(nodes))
+def outline_text(nodes: list[Node], *, labelled: bool = False) -> str:
+    """The outline as an indented list, for prompts; `labelled`: N1, N2… in study order, the
+    labels a model answers with (quick ask, design §5.3)."""
+    return "\n".join(
+        f"{'  ' * n.depth}{f'N{i}:' if labelled else '-'} {n.title}"
+        for i, n in enumerate(in_order(nodes), 1)
+    )
 
 
 def _child_depth(by_id: dict[uuid.UUID, Node], parent_id: uuid.UUID | None) -> int:

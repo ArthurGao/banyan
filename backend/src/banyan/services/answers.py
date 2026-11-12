@@ -36,7 +36,6 @@ from banyan.pipeline import record
 from banyan.pipeline.events import DoneEvent, ErrorEvent, Event
 from banyan.pipeline.run import run_ask
 from banyan.pipeline.types import (
-    CHARS_PER_TOKEN,
     AnswerConfig,
     AskInput,
     Deps,
@@ -116,17 +115,16 @@ async def start_explain(s: AsyncSession, node_id: uuid.UUID) -> AskInput:
 
 
 async def start_ask(
-    s: AsyncSession, branch_id: uuid.UUID, question: str, *, history_budget: int,
-    allow_web: bool = True, episode_every: int = 5,
-) -> AskInput:  # fmt: skip
+    s: AsyncSession, branch_id: uuid.UUID, question: str, rt: Runtime, *, allow_web: bool = True
+) -> AskInput:
     branch = await branches.get_branch(s, branch_id)
     if branch.closed_at is not None:
         raise Conflict("the branch is closed")
     node = await outline.get_node(s, branch.node_id)
-    history = await branches.current_messages(s, branch_id)
+    past = await branches.history(s, branch, rt.history_budget)
     # With this question, does the branch hold enough new turns for an episode (design §8.5)?
     unsent = await branches.unsent(s, branch)
-    due = 1 + sum(m.role == MessageRole.USER for m in unsent) >= episode_every
+    episode_due = 1 + sum(m.role == MessageRole.USER for m in unsent) >= rt.episode_every
     s.add(
         Message(
             branch_id=branch_id,
@@ -135,15 +133,11 @@ async def start_ask(
             content_md=question,
         )
     )
-    inp = await _ask_input(
-        s, node, branch_id, question, _trim(history, history_budget), allow_web=allow_web
-    )
-    return inp.model_copy(update={"episode_due": due})
+    inp = await _ask_input(s, node, branch_id, question, past, allow_web=allow_web)
+    return inp.model_copy(update={"episode_due": episode_due})
 
 
-async def start_reanswer(
-    s: AsyncSession, message_id: uuid.UUID, *, history_budget: int
-) -> AskInput:
+async def start_reanswer(s: AsyncSession, message_id: uuid.UUID, rt: Runtime) -> AskInput:
     """A new answer to the same question after "wrong"/"incomplete" (design §6.3): `force_llm`,
     in the same branch; the old answer is superseded when the new one commits."""
     old = await branches.get_answer(s, message_id)
@@ -154,14 +148,12 @@ async def start_reanswer(
     if branch.kind == BranchKind.MAIN:
         inp = await _explain_input(s, node, branch.id)
     else:
-        question = await branches.question_for(s, old)
-        if question is None:
+        asked = await branches.asked_for(s, old)
+        if asked is None:
             raise Conflict("no question to answer again")
-        earlier = [
-            m for m in await branches.current_messages(s, branch.id)
-            if m.created_at < old.created_at
-        ][:-1]  # fmt: skip
-        inp = await _ask_input(s, node, branch.id, question, _trim(earlier, history_budget))
+        # What came before that question, with the branch's summary (design §5.3).
+        past = await branches.history(s, branch, rt.history_budget, until=asked.id)
+        inp = await _ask_input(s, node, branch.id, asked.content_md, past, compress=False)
     return inp.model_copy(update={"force_llm": True, "supersedes": old.id})
 
 
@@ -176,17 +168,23 @@ async def _explain_input(s: AsyncSession, node: Node, branch_id: uuid.UUID) -> A
 
 
 async def _ask_input(
-    s: AsyncSession, node: Node, branch_id: uuid.UUID, question: str, history: list[Turn],
-    *, allow_web: bool = True,
+    s: AsyncSession, node: Node, branch_id: uuid.UUID, question: str, past: branches.History,
+    *, allow_web: bool = True, compress: bool = True,
 ) -> AskInput:  # fmt: skip
+    """`past`: the branch's summary and recent turns; when turns fell out that the summary does
+    not cover, this answer's commit queues their compression (`compress`)."""
     explained = await branches.explanation(s, node.id)
     placeholder = await _placeholder(s, branch_id)
     topic = await topics.get_topic(s, node.topic_id)
-    return await _input(
-        s, topic, node, placeholder, branch_id, mode="ask", question=question, history=history,
+    inp = await _input(
+        s, topic, node, placeholder, branch_id, mode="ask", question=question,
+        history=[Turn(role=m.role.value, content=m.content_md) for m in past.turns],
         explanation=explained.content_md[:EXPLANATION_CONTEXT_CHARS] if explained else None,
         allow_web=allow_web,
     )  # fmt: skip
+    return inp.model_copy(
+        update={"history_summary": past.summary, "compress_due": compress and bool(past.dropped)}
+    )
 
 
 async def stream_answer(inp: AskInput, rt: Runtime) -> AsyncIterator[Event]:
@@ -301,16 +299,3 @@ async def _input(
         research=[WebSource.model_validate(r) for r in topic.research_sources],
         allow_web=allow_web,
     )  # fmt: skip
-
-
-def _trim(messages: list[Message], budget_tokens: int) -> list[Turn]:
-    """The newest turns that fit the budget, oldest first (compression arrives in B6)."""
-    kept: list[Turn] = []
-    used = 0
-    for m in reversed(messages):
-        cost = len(m.content_md) // CHARS_PER_TOKEN + 1
-        if used + cost > budget_tokens:
-            break
-        used += cost
-        kept.append(Turn(role=m.role.value, content=m.content_md))
-    return list(reversed(kept))

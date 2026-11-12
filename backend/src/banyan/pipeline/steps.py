@@ -250,6 +250,16 @@ async def writeback(inp: AskInput, answered: AnswerOut, deps: Deps) -> Writeback
                 dedupe_key=f"episode:{inp.branch_id}",
             )
         )
+    if inp.compress_due:
+        # Turns the summary does not cover no longer fit: compress them for the next question.
+        jobs.append(
+            JobSpec(
+                kind="branch_compress",
+                idempotency_key=f"branch_compress:{inp.message_id}",
+                payload={"branch_id": str(inp.branch_id)},
+                dedupe_key=f"compress:{inp.branch_id}",
+            )
+        )
     if inp.mode == "explain":
         jobs.append(
             JobSpec(
@@ -268,6 +278,7 @@ def _context_vars(inp: AskInput) -> dict[str, object]:
         "language_name": inp.language_name, "instructions": inp.instructions,
         "outline": inp.outline, "node_title": inp.node_title, "node_summary": inp.node_summary,
         "explanation": inp.explanation, "history": [t.model_dump() for t in inp.history],
+        "history_summary": inp.history_summary,
         "question": inp.question, "mode": inp.mode,
     }  # fmt: skip
 

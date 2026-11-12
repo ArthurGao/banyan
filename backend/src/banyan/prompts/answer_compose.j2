@@ -19,6 +19,11 @@ The node's explanation, for context:
 {{ explanation }}
 
 {% endif %}
+{% if history_summary %}
+Summary of the earlier conversation:
+{{ history_summary }}
+
+{% endif %}
 {% if history %}
 Earlier in this conversation:
 {% for turn in history %}

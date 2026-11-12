@@ -101,6 +101,7 @@ class JobKind(StrEnum):
     NOTES_UPDATE = "notes_update"
     EPISODE_SUBMIT = "episode_submit"
     EXPORT_RENDER = "export_render"
+    BRANCH_COMPRESS = "branch_compress"
 
 
 class JobStatus(StrEnum):

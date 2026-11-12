@@ -5,7 +5,6 @@ replays steward's first answer."""
 
 import uuid
 
-from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from banyan.models import Branch, BranchKind, MessageRole
@@ -42,11 +41,5 @@ async def submit(
         idempotency_key=f"episode:{branch_id}:{last}",
     )
     async with sessions() as s:
-        # Moved only from where it was read: a concurrent run cannot move it back.
-        await s.execute(
-            update(Branch)
-            .where(Branch.id == branch_id, Branch.episode_through.is_not_distinct_from(watermark))
-            .values(episode_through=last)
-        )
-        await s.commit()
+        await branches.advance_mark(s, branch_id, "episode_through", read=watermark, to=last)
     return True

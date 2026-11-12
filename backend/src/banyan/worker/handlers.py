@@ -10,7 +10,7 @@ from banyan.errors import NotFound
 from banyan.jobs import Claimed, Handler, Permanent, RetryLater
 from banyan.models import JobKind, Topic
 from banyan.pipeline.events import ErrorEvent, Event
-from banyan.services import answers, episodes, notes, proposals, runs
+from banyan.services import answers, compress, episodes, notes, proposals, runs
 from banyan.steward import StewardRejected, collection_name
 from banyan.worker.context import WorkerContext
 
@@ -26,6 +26,7 @@ def handlers(ctx: WorkerContext) -> dict[str, Handler]:
     registry: dict[str, Handler] = {
         JobKind.NODE_EXPLAIN: partial(node_explain, ctx),
         JobKind.NOTES_UPDATE: partial(notes_update, ctx),
+        JobKind.BRANCH_COMPRESS: partial(branch_compress, ctx),
     }
     if ctx.steward is not None:  # the KB writes wait for steward (design §8)
         registry[JobKind.COLLECTION_ENSURE] = partial(collection_ensure, ctx)
@@ -101,6 +102,17 @@ async def notes_update(ctx: WorkerContext, job: Claimed) -> None:
         return  # the node was deleted
     except notes.VersionConflict as exc:
         raise RetryLater(str(exc), after_s=VERSION_RETRY_S) from exc
+
+
+async def branch_compress(ctx: WorkerContext, job: Claimed) -> None:
+    """A long branch's early turns into its summary (design §5.3); a failed role retries."""
+    try:
+        await compress.compress(
+            ctx.sessions, ctx.llm, uuid.UUID(job.payload["branch_id"]),
+            budget=ctx.settings.history_budget,
+        )  # fmt: skip
+    except NotFound:
+        return  # the branch or its node was deleted
 
 
 async def kb_propose(ctx: WorkerContext, job: Claimed) -> None:

@@ -2,9 +2,9 @@
 
 import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from banyan.models import (
     BranchKind,
@@ -284,3 +284,40 @@ class CandidateDecision(BaseModel):
         description="accept: the card becomes a knowledge base entry"
     )
     note: str | None = Field(default=None, max_length=2000)
+
+
+class ClassifyIn(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+
+
+class NewNodeIn(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    title: str = Field(min_length=1, max_length=300)
+    summary: str = Field(default="", max_length=2000)
+    parent_id: uuid.UUID | None = None
+    position: int = Field(default=0, ge=0)
+
+
+class ClassifyOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    node_id: uuid.UUID | None = Field(description="The node the question belongs to, if any")
+    confidence: float
+    confident: bool = Field(description="False: ask the learner (offer suggested_node)")
+    suggested_node: NewNodeIn | None = Field(
+        description="When not confident: a node the outline lacks, to add if the learner agrees"
+    )
+
+
+class QuickAskIn(AskBody):
+    node_id: uuid.UUID | None = Field(default=None, description="Ask in this node")
+    new_node: NewNodeIn | None = Field(
+        default=None, description="Or add this node (origin=question) and ask there"
+    )
+
+    @model_validator(mode="after")
+    def _one_place(self) -> Self:
+        if (self.node_id is None) == (self.new_node is None):
+            raise ValueError("give exactly one of node_id and new_node")
+        return self

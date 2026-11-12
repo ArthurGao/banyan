@@ -20,7 +20,7 @@ from banyan.pipeline.events import (
     PathEntry,
     PathEvent,
 )
-from banyan.pipeline.record import add_usage
+from banyan.pipeline.record import add_usage, save_usage
 from banyan.pipeline.sources import Wrapper
 from banyan.pipeline.tools import SourceBook
 from banyan.pipeline.types import WebSource
@@ -90,11 +90,6 @@ async def generate_outline(
     )  # fmt: skip
     yield PathEvent(PathEntry(step="outline", status="running"))
 
-    async def save_usage() -> None:
-        async with sessions() as s:
-            add_usage(s, usage)
-            await s.commit()
-
     try:
         generated = await llm.structured(
             Role.OUTLINE_GENERATE,
@@ -105,11 +100,12 @@ async def generate_outline(
             usage=usage,
         )
     except RoleError as exc:
-        await save_usage()
+        await save_usage(sessions, usage)
         yield ErrorEvent(f"role_{exc.kind}", str(exc))
         return
     except (asyncio.CancelledError, GeneratorExit):
-        await asyncio.shield(save_usage())  # the client left; the attempt still cost tokens
+        # The client left; the attempt still cost tokens.
+        await asyncio.shield(save_usage(sessions, usage))
         raise
     async with sessions() as s:
         # Locked and checked again: the outline may have been confirmed while the model answered.

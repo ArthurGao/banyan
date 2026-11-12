@@ -37,5 +37,5 @@ async def give_feedback(
         await s.refresh(message)
         return MessageOut.model_validate(message)
     # start_reanswer commits the verdict with the new answer's placeholder, or raises.
-    inp = await answers.start_reanswer(s, message_id, history_budget=rt.history_budget)
+    inp = await answers.start_reanswer(s, message_id, rt)
     return sse.stream(answers.stream_answer(inp, rt))

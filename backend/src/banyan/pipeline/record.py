@@ -119,3 +119,11 @@ def add_usage(s: AsyncSession, usage: UsageCollector) -> None:
                 latency_ms=r.latency_ms,
             )
         )
+
+
+async def save_usage(sessions: async_sessionmaker[AsyncSession], usage: UsageCollector) -> None:
+    """Usage of a call that is not part of an answer's commit (jobs, JSON requests), in its own
+    transaction: written whatever happened after the provider answered."""
+    async with sessions() as s:
+        add_usage(s, usage)
+        await s.commit()

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from banyan.llm import CallContext, Role, RoleClient, UsageCollector
 from banyan.models import Branch, Feedback, Message, Node, Topic
-from banyan.pipeline.record import add_usage
+from banyan.pipeline.record import save_usage
 from banyan.pipeline.sources import SourceText, wrap
 from banyan.prompts import render
 from banyan.services import branches
@@ -77,9 +77,7 @@ async def propose(
             risk_level=draft.risk_level, idempotency_key=idempotency_key,
         )  # fmt: skip
     finally:
-        async with sessions() as s:  # usage is kept whatever happened after the model answered
-            add_usage(s, usage)
-            await s.commit()
+        await save_usage(sessions, usage)  # kept whatever happened after the model answered
     if proposed.entry_id is not None:
         async with sessions() as s:
             fresh = await get_or_404(s, Message, message_id)

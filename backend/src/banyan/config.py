@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # A question branch goes to steward as an episode when closed or after this many new turns
     # (design §8.5).
     episode_every: int = Field(default=5, ge=1)
+    # Production: the built frontend (`pnpm build` output), served by this process (design §11).
+    frontend_dist: Path | None = None
+    # Quick ask (design §5.3): below this confidence the learner is offered a new node.
+    classify_threshold: float = Field(default=0.6, ge=0, le=1)
     # Retrieval (design §6.2 step 3, §6.5): items kept and their estimated tokens.
     retrieve_top_k: int = Field(default=8, ge=1, le=50)
     context_budget: int = Field(default=3000, gt=0)

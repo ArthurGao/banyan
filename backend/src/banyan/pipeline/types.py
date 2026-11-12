@@ -62,6 +62,8 @@ class AskInput(BaseModel):
     outline: str = ""  # explain: the outline as an indented list
     explanation: str | None = None  # ask: the node's explanation
     history: list[Turn] = Field(default_factory=list)  # ask: earlier turns, trimmed to budget
+    history_summary: str | None = None  # ask: the branch's early turns, compressed (§5.3)
+    compress_due: bool = False  # ask: turns were dropped that the summary does not cover
     collection: str  # this topic's steward collection name
     all_collections: list[str]  # every active topic's, for the widest scope
     research: list[WebSource] = Field(default_factory=list)  # the topic's, from the outline
@@ -93,6 +95,10 @@ class FreshnessVerdict(BaseModel):
 
 
 CHARS_PER_TOKEN = 4  # a rough estimate, enough to keep prompts inside a budget
+
+
+def estimate_tokens(text: str) -> int:
+    return len(text) // CHARS_PER_TOKEN + 1
 
 
 class RetrievedSource(BaseModel):

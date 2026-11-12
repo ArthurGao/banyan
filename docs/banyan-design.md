@@ -152,6 +152,7 @@ nodes
 branches
   node_id, kind (main|question), title
   closed_at, episode_through (nullable)   -- 最后一条已作为 episode 交给 steward 的消息（B5 水位，§8.5；替代未用的 episode_job_id）
+  summary_md, summary_through (nullable)  -- 早期轮次的压缩摘要，覆盖到 summary_through 为止（B6，§5.3）
   -- 唯一约束：每个节点至多一个 kind=main 的分支
 
 generation_runs                      -- 一次"全部生成"（§5.1）
@@ -258,9 +259,9 @@ exports
 ### 5.3 支线提问
 
 - 节点下“新建支线”或直接在讲解下提问（自动建支线）。
-- **快速提问**：不选节点直接问，`node.classify`（便宜模型）把问题归到最相关的节点，用户可事后移动支线。
+- **快速提问**：不选节点直接问，`node.classify`（便宜模型）把问题归到最相关的节点，用户可事后移动支线（`PATCH /branches/{id} {node_id}`）。**分两步**（owner 2026-11-12 决定）：`POST /topics/{id}/classify` 返回 JSON；前端在 `confident=false` 时询问用户，然后 `POST /topics/{id}/quick-ask` 带 `node_id`（选定的节点）或 `new_node`（确认新增）建支线并流式作答。大纲以 `N1…` 编号交给模型（不让模型抄写 id），代码把编号映射回节点；编号不存在等于没有合适节点。
 - **大纲随提问生长**：`node.classify` 的结构化输出为 `{node_id | null, confidence, suggested_node?: {title, summary, parent_id, position}}`。`node_id=null`（大纲中没有合适节点）或 `confidence < BANYAN_CLASSIFY_THRESHOLD` 时，前端提示“大纲里没有这部分，是否新增节点「X」（挂在「Y」下）？”。用户确认 → 插入 `origin=question` 的节点，问题成为该节点下的第一条支线；用户拒绝 → 归到用户选的节点。是否新增节点由用户决定，模型只给建议。
-- 支线内可连续追问，上下文为：主题指令 + 节点 summary + 节点讲解摘要 + 本支线历史（超预算时由 `branch.compress` 压缩早期轮次）。
+- 支线内可连续追问，上下文为：主题指令 + 节点 summary + 节点讲解摘要 + 本支线历史（超预算时由 `branch.compress` 压缩早期轮次）。B6 实现：历史 = 支线摘要（`branches.summary_md`）+ 摘要水位之后的轮次，最新的在预算内保留原文；有轮次被裁掉而摘要没覆盖时，回答的事务里入队 `branch_compress`（同一支线去重）。worker 用便宜模型把"旧摘要 + 早期轮次"压成新摘要，只保留能放进半个预算的最新整轮，比较并推进水位，记录用量。提问不等压缩：溢出后的下一问照旧裁剪。被重答取代的答案不进摘要。
 
 ### 5.4 节点笔记
 
@@ -356,7 +357,7 @@ AskRequest:
 | 项 | 默认 | 配置 |
 |---|---|---|
 | 检索上下文 | 3,000 tokens | `BANYAN_CONTEXT_BUDGET` |
-| 支线历史 | 2,000 tokens，超出压缩 | `BANYAN_HISTORY_BUDGET` |
+| 支线历史 | 2,000 tokens，超出压缩（摘要 + 最新轮次，§5.3） | `BANYAN_HISTORY_BUDGET` |
 | compose 最大步数 | 6 | `BANYAN_ANSWER_MAX_STEPS` |
 | compose 最大输出 | 2,000 tokens | `BANYAN_ANSWER_MAX_TOKENS` |
 | web_fetch 单页截断 | 4,000 tokens | `BANYAN_FETCH_MAX_TOKENS` |
@@ -581,7 +582,8 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 | GET | `/branches/{id}` | 支线消息 |
 | PATCH | `/branches/{id}` | 重命名、移动到其他节点、关闭 |
 | POST | `/branches/{id}/ask` | 提问（SSE） |
-| POST | `/topics/{id}/quick-ask` | 快速提问：归类节点、建支线、作答（SSE） |
+| POST | `/topics/{id}/classify` | 快速提问第一步：`{question}` → `{node_id | null, confidence, confident, suggested_node?}`（JSON；模型失败 502，用量照记） |
+| POST | `/topics/{id}/quick-ask` | 快速提问第二步：`{question, node_id | new_node, allow_web}` 建支线（`new_node` 时先插入 `origin=question` 的节点）并作答（SSE，同 `/branches/{id}/ask`） |
 | POST | `/messages/{id}/feedback` | `good` / `wrong` / `incomplete` + note + `reanswer`（默认 true）；后两者且 `reanswer=true` 时触发重答（SSE），否则同步返回 |
 | GET | `/branches/{id}/messages/latest` | 流中断后取回最新一条 assistant 消息（见下方 SSE 语义） |
 | GET | `/memory` | 学习者生效的记忆（steward memories，最新在前；`?cursor=&limit=`，§8.5） |
@@ -613,7 +615,7 @@ error     {code, message}
 
 **提交点与中断语义**
 
-- 开始流式输出前先在同一事务写入 user 消息和一条 `status=streaming` 的 assistant 消息占位（无内容），返回其 `message_id` 作为流的第一个 `path` 事件（step=scope）的 `detail.message_id`。这一步在打开流之前完成，所以 409、404 是普通 HTTP 错误，不是 `error` 事件。讲解（explain）没有 user 消息，占位写在节点的 `main` 分支上（没有就建）。
+- 开始流式输出前先在同一事务写入 user 消息和一条 `status=streaming` 的 assistant 消息占位（无内容），返回其 `message_id`（以及 `branch_id`、`node_id`，快速提问时前端据此跳转）作为流的第一个 `path` 事件（step=scope）的 `detail.message_id`。这一步在打开流之前完成，所以 409、404 是普通 HTTP 错误，不是 `error` 事件。讲解（explain）没有 user 消息，占位写在节点的 `main` 分支上（没有就建）。
 - 作答完成后，在**一个事务**里写入 assistant 消息内容、`usage_log`、`jobs`，然后发 `done`。`done` 之前客户端看到的 token 都是未提交内容。
 - 客户端断开（含用户点"停止"）→ 服务端取消进行中的 LLM 调用，占位消息改为 `status=aborted`，已发生的 provider 调用照常记 `usage_log`（`ok=false, error_kind=aborted`），不入队任何 job。
 - 客户端断开但服务端在断开前已到达提交点 → 消息照常提交（提交一旦开始就做完，B1 实现并测试了提交中途断开）；客户端重连后用 `GET /branches/{id}/messages/latest` 取回。
@@ -647,6 +649,8 @@ error     {code, message}
 - 前端在 iframe 中预览，提供下载与系统分享。也可导入 Obsidian（另存为 `.html` 或后续提供 Markdown 导出，§13）。
 
 ## 11. 前端
+
+生产环境由后端进程托管构建产物（`BANYAN_FRONTEND_DIST`，镜像里已设）：存在的文件原样返回，其余非 API 路径返回 `index.html`（单页应用），`/v1`、`/health`、`/openapi.json`、`/docs` 下的未知路径仍是 API 的 404；与 API 同源，PWA 才能安装。部署见 `deploy/README.md`。
 
 ### 11.1 布局
 
@@ -839,11 +843,27 @@ error     {code, message}
 
 ### B6 — 打磨与部署
 
-- [ ] 快速提问（`node.classify`）与支线移动；无合适节点时建议新节点（`origin=question`），用户确认后插入
-- [ ] `branch.compress`；预算调优
-- [ ] PWA（manifest、图标、app shell 缓存）
-- [ ] 部署文档：本机 docker compose + Tailscale；Ollama 模型准备（`bge-m3:567m`、`qwen3:8b`）；steward 配置清单与 `banyan.yaml`
+- [x] 快速提问（`node.classify`）与支线移动；无合适节点时建议新节点（`origin=question`），用户确认后插入（后端；分两步，§5.3）
+- [x] `branch.compress`（预算调优：没有真实用量数据前不改默认值，留待验收后按 `/v1/usage` 调）
+- [ ] PWA（manifest、图标、app shell 缓存）——另一个会话；后端已能同源托管构建产物（§11）
+- [x] 部署文档：本机 docker compose + Tailscale；Ollama 模型准备（`bge-m3:567m`、`qwen3:8b`）；steward 配置清单与 `banyan.yaml`（`Dockerfile`、`docker-compose.yml`、`deploy/README.md`）
 - 验收：手机经 Tailscale 安装 PWA 并完成完整学习流程
+- **收尾记录（2026-11-13，后端与部署）**：
+  - owner 决定：快速提问分两步（`POST /topics/{id}/classify` JSON → `POST /topics/{id}/quick-ask` SSE）；部署做镜像 + compose + 文档，
+    不动 owner 的 Tailscale。
+  - 验证：后端 389 个测试 + `-m steward` 7 个全绿；`docker build --target backend` 与 `docker compose up`（fakes，独立项目名与临时数据库，
+    事后删除）：启动时迁移到 head、`/health` ok、建主题、无 token 401、挂上前端构建产物后深链接返回 `index.html`、未知 API 路径仍是 JSON 404。
+    **完整镜像（含前端）构建不过**：另一个会话的前端 `pnpm build` 类型检查失败（`src/api/generated/core/serverSentEvents.gen.ts` 与
+    `exactOptionalPropertyTypes`、`e2e/shell.spec.ts` 缺 DOM 类型），前端修好后 `docker compose up -d --build` 即可。手机经 Tailscale 安装
+    PWA 的验收待前端与 owner。
+  - /simplify（四个代理）：支线历史只在 `branches.history` 一处拼装（提问、重答、压缩共用，整轮规则）——顺带修了重答丢摘要（先写失败的
+    测试）；`estimate_tokens`、`advance_mark`、`record.save_usage` 各一份；`start_ask` / `start_reanswer` 收 `Runtime`；前端托管的 API 前缀从
+    OpenAPI 路径表推导；Dockerfile 用 builder 阶段（运行镜像不含 git 与 uv）、缓存挂载、`.dockerignore` 排除测试与文档。没做：
+    `NewNodeIn` 与 `NodeCreate` 合并（建议节点总带位置，默认值语义不同）；`/assets` 长缓存头（单用户）；测试里的提问辅助函数合并（返回值各异）。
+  - Codex：两条成立并修复——快速提问的节点与支线先提交、作答被拒时留下空节点（改为与占位消息同一事务，先写失败的测试）；部署文档里
+    Linux 的 `network_mode: host` 说法不对（主机网络要用 `127.0.0.1` 地址，`ports` 不生效）。驳回三条：并发压缩覆盖新摘要（同一支线的压缩
+    任务按去重键串行，且 compare-and-set 比较的是读到的旧水位，后到的一次匹配不上）；重答提前入队压缩（重答传 `compress=False`，不入队）；
+    缺支线移动测试（B1 的 `test_outline_api.py:138` 已覆盖）。修复不涉及 §4 / §6 / §8，没有再跑 Codex。
 
 ### 之后（v2 候选）
 

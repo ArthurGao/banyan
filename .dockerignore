@@ -1,0 +1,23 @@
+# Secrets never enter the image: settings come from the environment at run time.
+**/.env
+**/.env.*
+!**/.env.example
+backend/roles.yaml
+
+**/.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+**/.import_linter_cache
+frontend/test-results
+frontend/playwright-report
+.git
+.impeccable
+
+# Not needed to run: tests, end-to-end specs, docs (editing them must not rebuild the layers).
+backend/tests
+frontend/e2e
+**/*.md

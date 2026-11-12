@@ -1,0 +1,15 @@
+{% block instructions %}
+You place one learner's question in a study outline. Answer with the label of the node it belongs
+to (like N3), or null when no node covers it, and how confident you are (0 to 1). When no node fits
+well, suggest a new node: a short title, a one-sentence summary, the label of its parent (null for
+the top level) and its position among the parent's children (0 is first). Write titles and
+summaries in {{ language_name }}.
+{% endblock %}
+{% block prompt %}
+Topic: {{ topic_title }}
+
+Outline:
+{{ outline }}
+
+Question: {{ question }}
+{% endblock %}

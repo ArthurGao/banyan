@@ -279,6 +279,66 @@
         "title": "CandidatePageOut",
         "type": "object"
       },
+      "ClassifyIn": {
+        "properties": {
+          "question": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "ClassifyIn",
+        "type": "object"
+      },
+      "ClassifyOut": {
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "confident": {
+            "description": "False: ask the learner (offer suggested_node)",
+            "title": "Confident",
+            "type": "boolean"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The node the question belongs to, if any",
+            "title": "Node Id"
+          },
+          "suggested_node": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NewNodeIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When not confident: a node the outline lacks, to add if the learner agrees"
+          }
+        },
+        "required": [
+          "node_id",
+          "confidence",
+          "confident",
+          "suggested_node"
+        ],
+        "title": "ClassifyOut",
+        "type": "object"
+      },
       "ConfirmOutline": {
         "properties": {
           "explain_mode": {
@@ -810,6 +870,45 @@
         "title": "MessageStatus",
         "type": "string"
       },
+      "NewNodeIn": {
+        "properties": {
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "position": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Position",
+            "type": "integer"
+          },
+          "summary": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "NewNodeIn",
+        "type": "object"
+      },
       "NodeCreate": {
         "properties": {
           "origin": {
@@ -1193,6 +1292,51 @@
           "status"
         ],
         "title": "PathEntry",
+        "type": "object"
+      },
+      "QuickAskIn": {
+        "properties": {
+          "allow_web": {
+            "default": true,
+            "description": "False: no web tools (B4); a time-sensitive answer gets warnings=[stale_risk]",
+            "title": "Allow Web",
+            "type": "boolean"
+          },
+          "new_node": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NewNodeIn"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Or add this node (origin=question) and ask there"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ask in this node",
+            "title": "Node Id"
+          },
+          "question": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "QuickAskIn",
         "type": "object"
       },
       "RunCreate": {
@@ -3133,6 +3277,69 @@
         ]
       }
     },
+    "/v1/topics/{topic_id}/classify": {
+      "post": {
+        "description": "Quick ask, step 1 (design §5.3): where the question belongs in the outline, or a node to\nadd when nothing fits (offered to the learner when `confident` is false).",
+        "operationId": "classify",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassifyIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassifyOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "502": {
+            "description": "node.classify failed (no fallback, design §7.2)"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Classify",
+        "tags": [
+          "topics",
+          "quick ask"
+        ]
+      }
+    },
     "/v1/topics/{topic_id}/export": {
       "post": {
         "description": "Renders the topic's notes now; `status` is done, or failed with `error`.",
@@ -3458,6 +3665,62 @@
         "summary": "Confirm Outline",
         "tags": [
           "topics"
+        ]
+      }
+    },
+    "/v1/topics/{topic_id}/quick-ask": {
+      "post": {
+        "description": "Quick ask, step 2: a new branch in `node_id`, or in `new_node` added now (origin\nquestion), and the answer streamed; the first `path` event names the node and branch.",
+        "operationId": "quick_ask_question",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuickAskIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "as /branches/{id}/ask"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Quick Ask Question",
+        "tags": [
+          "topics",
+          "quick ask"
         ]
       }
     },

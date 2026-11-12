@@ -197,6 +197,17 @@ def demo_answers(role: Role, prompt: str) -> str:
         )
     if role == Role.JUDGE_FRESHNESS:
         return json.dumps({"needs_web": False, "reason": "fake model"})
+    if role == Role.NODE_CLASSIFY:
+        # Not sure, so the demo also shows the "add this node?" suggestion.
+        return json.dumps(
+            {
+                "node": "N1", "confidence": 0.5,
+                "suggested_node": {"title": "A fake new node", "summary": "Suggested by the fake "
+                                   "model (BANYAN_FAKES=1).", "parent": None, "position": 0},
+            }
+        )  # fmt: skip
+    if role == Role.BRANCH_COMPRESS:
+        return json.dumps({"summary": "Fake summary of the earlier turns (BANYAN_FAKES=1)."})
     return (
         "**Fake answer** (BANYAN_FAKES=1). This text streams in small chunks so the client can "
         f"show progress.\n\nYou asked: {prompt[-200:]}"

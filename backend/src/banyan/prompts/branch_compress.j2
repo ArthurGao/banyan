@@ -1,0 +1,12 @@
+{% block instructions %}
+You keep the memory of one long study conversation short. Given the summary so far (if any) and
+the earlier turns that no longer fit, write one summary of everything said: what the learner asked,
+what was explained, the conclusions and open points, in {{ language_name }}. Keep facts, names,
+numbers and code identifiers exact; drop small talk. At most about {{ words }} words. {{ sources_rule }}
+{% endblock %}
+{% block prompt %}
+Topic: {{ topic_title }}
+Node: {{ node_title }}
+
+{{ material }}
+{% endblock %}

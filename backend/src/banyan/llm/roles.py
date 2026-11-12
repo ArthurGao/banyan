@@ -26,6 +26,7 @@ STRUCTURED_ROLES = frozenset(
         Role.NODE_CLASSIFY,
         Role.NOTES_UPDATE,
         Role.KB_DRAFT_ENTRY,
+        Role.BRANCH_COMPRESS,
     }
 )
 # Required at startup (design §7.2): each stage adds the roles it starts using.
@@ -38,5 +39,7 @@ REQUIRED_ROLES = frozenset(
         Role.JUDGE_SUFFICIENCY,  # B3
         Role.ANSWER_FROM_KB,  # B3
         Role.KB_DRAFT_ENTRY,  # B3
+        Role.NODE_CLASSIFY,  # B6
+        Role.BRANCH_COMPRESS,  # B6
     }
 )

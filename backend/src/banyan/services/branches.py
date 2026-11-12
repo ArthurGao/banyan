@@ -1,9 +1,10 @@
 """Branches and their messages (design §5.3, §9)."""
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from banyan.errors import NotFound
@@ -18,6 +19,7 @@ from banyan.models import (
     Node,
     enqueue,
 )
+from banyan.pipeline.types import estimate_tokens
 from banyan.services.lookup import get_or_404
 from banyan.services.outline import get_node
 
@@ -33,11 +35,14 @@ async def node_branches(s: AsyncSession, node_id: uuid.UUID) -> list[Branch]:
     return list(rows)
 
 
-async def create_branch(s: AsyncSession, node_id: uuid.UUID, title: str) -> Branch:
+async def create_branch(
+    s: AsyncSession, node_id: uuid.UUID, title: str, *, commit: bool = True
+) -> Branch:
+    """`commit=False`: flushed only, for a caller that commits it with more (quick ask)."""
     await get_node(s, node_id)
     branch = Branch(node_id=node_id, kind=BranchKind.QUESTION, title=title)
     s.add(branch)
-    await s.commit()
+    await (s.commit() if commit else s.flush())
     return branch
 
 
@@ -101,11 +106,18 @@ def after[M: Message](messages: list[M], mark: uuid.UUID | None) -> list[M]:
     return messages[ids.index(mark) + 1 :] if mark in ids else messages
 
 
+async def current_after(
+    s: AsyncSession, branch_id: uuid.UUID, mark: uuid.UUID | None
+) -> list[Message]:
+    """The branch's current messages after a watermark. The mark is found among all committed
+    messages: it may be an answer since answered again (then the new answer comes after it)."""
+    done = await done_messages(s, branch_id)
+    return [m for m in after(done, mark) if m.superseded_by is None]
+
+
 async def unsent(s: AsyncSession, branch: Branch) -> list[Message]:
-    """The branch's current messages steward has not had in an episode (design §8.5). The
-    watermark is found among all committed messages: it may be an answer since answered again."""
-    done = await done_messages(s, branch.id)
-    return [m for m in after(done, branch.episode_through) if m.superseded_by is None]
+    """What steward has not had in an episode yet (design §8.5)."""
+    return await current_after(s, branch.id, branch.episode_through)
 
 
 async def current_messages(s: AsyncSession, branch_id: uuid.UUID) -> list[Message]:
@@ -113,14 +125,71 @@ async def current_messages(s: AsyncSession, branch_id: uuid.UUID) -> list[Messag
     return [m for m in await done_messages(s, branch_id) if m.superseded_by is None]
 
 
+async def asked_for(s: AsyncSession, answer: Message) -> Message | None:
+    """The learner's message an answer replied to: the last current user message before it."""
+    earlier = [
+        m for m in await current_messages(s, answer.branch_id) if m.created_at < answer.created_at
+    ]
+    return earlier[-1] if earlier and earlier[-1].role == MessageRole.USER else None
+
+
 async def question_for(s: AsyncSession, answer: Message) -> str | None:
     """The question an answer replied to: the node itself on the main branch, otherwise the
-    last current user message before it."""
+    learner's message before it."""
     branch = await get_branch(s, answer.branch_id)
     if branch.kind == BranchKind.MAIN:
         return explain_question(await get_node(s, branch.node_id))
-    earlier = [m for m in await current_messages(s, branch.id) if m.created_at < answer.created_at]
-    return earlier[-1].content_md if earlier and earlier[-1].role == MessageRole.USER else None
+    asked = await asked_for(s, answer)
+    return asked.content_md if asked else None
+
+
+@dataclass(frozen=True)
+class History:
+    """A branch's past as a model sees it (design §5.3): the summary of its early turns, then
+    the newest whole turns within the budget; `dropped` is what neither covers (to compress)."""
+
+    summary: str | None
+    turns: list[Message]
+    dropped: list[Message]
+
+
+async def history(
+    s: AsyncSession, branch: Branch, budget: int, *, until: uuid.UUID | None = None
+) -> History:
+    """The one rule for what of a branch fits a budget, for asking and for compressing.
+    `until`: only what came before that message (answering an earlier question again)."""
+    recent = await current_after(s, branch.id, branch.summary_through)
+    if until is not None:
+        ids = [m.id for m in recent]
+        recent = recent[: ids.index(until)] if until in ids else []
+    summary = branch.summary_md if branch.summary_through else None
+    room = budget - (estimate_tokens(summary) if summary else 0)
+    kept, used = 0, 0
+    for m in reversed(recent):
+        used += estimate_tokens(m.content_md)
+        if used > room:
+            break
+        kept += 1
+    # Whole turns only: what stays starts with a question, so no answer loses its question.
+    while kept and recent[len(recent) - kept].role != MessageRole.USER:
+        kept -= 1
+    split = len(recent) - kept
+    return History(summary, recent[split:], recent[:split])
+
+
+async def advance_mark(
+    s: AsyncSession, branch_id: uuid.UUID, column: str, *, read: uuid.UUID | None,
+    to: uuid.UUID, **also: object,
+) -> bool:  # fmt: skip
+    """Moves a branch's watermark (`episode_through`, `summary_through`) only from where it was
+    read, so a concurrent run cannot move it back. False when someone moved it first."""
+    moved = await s.execute(
+        update(Branch)
+        .where(Branch.id == branch_id, getattr(Branch, column).is_not_distinct_from(read))
+        .values({column: to, **also})
+    )
+    await s.commit()
+    return bool(getattr(moved, "rowcount", 0))
 
 
 async def done_messages(s: AsyncSession, branch_id: uuid.UUID) -> list[Message]:

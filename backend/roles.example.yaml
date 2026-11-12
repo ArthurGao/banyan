@@ -23,5 +23,7 @@ roles:
   judge.sufficiency: deepseek/<cheap-model>  # required from B3
   answer.from_kb: deepseek/<cheap-model>  # required from B3
   kb.draft_entry: deepseek/<cheap-model>  # required from B3
+  node.classify: deepseek/<cheap-model>  # required from B6
+  branch.compress: deepseek/<cheap-model>  # required from B6
   # Optional in B1 (the step records "skipped" without it), required later:
   judge.freshness: ollama/qwen3:8b

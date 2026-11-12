@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from banyan.llm import CallContext, Role, RoleClient, UsageCollector
 from banyan.models import Branch, BranchKind, Feedback, Message, MessageStatus, NodeNotes
-from banyan.pipeline.record import add_usage
+from banyan.pipeline.record import add_usage, save_usage
 from banyan.pipeline.sources import SourceText, wrap
 from banyan.prompts import render
 from banyan.services import branches, outline, topics
@@ -86,9 +86,7 @@ async def update_notes(
             usage=usage,
         )  # fmt: skip
     except BaseException:
-        async with sessions() as s:  # a failed attempt still cost tokens (design §4)
-            add_usage(s, usage)
-            await s.commit()
+        await save_usage(sessions, usage)  # a failed attempt still cost tokens (design §4)
         raise
 
     merged = merge(before, proposed)

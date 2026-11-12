@@ -11,6 +11,11 @@ Level: {{ level }}
 {% endif %}
 Node: {{ node_title }}{% if node_summary %} ({{ node_summary }}){% endif %}
 
+{% if history_summary %}
+Summary of the earlier conversation:
+{{ history_summary }}
+
+{% endif %}
 {% if history %}
 Earlier in this conversation:
 {% for turn in history %}

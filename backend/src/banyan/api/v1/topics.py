@@ -4,11 +4,14 @@ from fastapi import APIRouter, Request, status
 from sse_starlette import EventSourceResponse
 
 from banyan.api import sse
-from banyan.api.deps import Session
+from banyan.api.deps import AnswerRuntime, Session
 from banyan.api.schemas import (
+    ClassifyIn,
+    ClassifyOut,
     ConfirmOutline,
     NodeCreate,
     NodeOut,
+    QuickAskIn,
     TopicCreate,
     TopicDetail,
     TopicOut,
@@ -16,7 +19,7 @@ from banyan.api.schemas import (
     TopicSummary,
     TopicUsageOut,
 )
-from banyan.services import generation, outline, topics, usage_stats
+from banyan.services import answers, generation, outline, quick_ask, topics, usage_stats
 
 router = APIRouter(tags=["topics"])
 
@@ -81,3 +84,39 @@ async def add_node(topic_id: uuid.UUID, body: NodeCreate, s: Session) -> NodeOut
 async def usage(s: Session, topic_id: uuid.UUID | None = None) -> list[TopicUsageOut]:
     """Per topic: KB hit rate, tokens by role, estimated tokens saved (design §11.2)."""
     return [TopicUsageOut.model_validate(u) for u in await usage_stats.topic_usage(s, topic_id)]
+
+
+@router.post(
+    "/topics/{topic_id}/classify",
+    tags=["quick ask"],
+    responses={502: {"description": "node.classify failed (no fallback, design §7.2)"}},
+)
+async def classify(
+    topic_id: uuid.UUID, body: ClassifyIn, s: Session, request: Request
+) -> ClassifyOut:
+    """Quick ask, step 1 (design §5.3): where the question belongs in the outline, or a node to
+    add when nothing fits (offered to the learner when `confident` is false)."""
+    state = request.app.state
+    placed = await quick_ask.classify(
+        s, state.llm, topic_id, body.question, threshold=state.settings.classify_threshold
+    )
+    return ClassifyOut.model_validate(placed)
+
+
+@router.post(
+    "/topics/{topic_id}/quick-ask",
+    tags=["quick ask"],
+    response_class=EventSourceResponse,
+    responses={200: {"content": {"text/event-stream": {}}, "description": "as /branches/{id}/ask"}},
+)
+async def quick_ask_question(
+    topic_id: uuid.UUID, body: QuickAskIn, s: Session, rt: AnswerRuntime
+) -> EventSourceResponse:
+    """Quick ask, step 2: a new branch in `node_id`, or in `new_node` added now (origin
+    question), and the answer streamed; the first `path` event names the node and branch."""
+    offer = body.new_node
+    inp = await quick_ask.start(
+        s, topic_id, body.question, rt, node_id=body.node_id, allow_web=body.allow_web,
+        new_node=quick_ask.NewNode(**offer.model_dump()) if offer else None,
+    )  # fmt: skip
+    return sse.stream(answers.stream_answer(inp, rt))

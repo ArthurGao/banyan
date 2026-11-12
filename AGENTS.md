@@ -38,8 +38,9 @@ If a change must contradict the design, update the design in the same change and
 
 ## Current stage
 
-**B5 — memory and topic instructions — backend done** (the screens are another session's).
-B6 (polish and deployment) next. Track the checklist in design §12; ticked items are done and verified. Open
+**B6 — quick ask, branch compression, deployment — backend done** (the screens and the PWA are another
+session's). v1's backend stages are done; open: owner-run acceptance (`-m search`, `-m llm`,
+`-m steward_live`, the phone through Tailscale) and the full image once the frontend builds. Track the checklist in design §12; ticked items are done and verified. Open
 questions are in design §13 — do not decide them silently; ask, or implement the conservative option
 behind config.
 

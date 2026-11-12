@@ -8,8 +8,10 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from banyan.api import errors, system, v1
@@ -77,7 +79,32 @@ def create_app(
                 if worker is not None:
                     await worker
 
-    return build_app(lifespan)
+    app = build_app(lifespan)
+    if resolved.frontend_dist is not None:
+        serve_frontend(app, resolved.frontend_dist)
+    return app
+
+
+def serve_frontend(app: FastAPI, dist: Path) -> None:
+    """The built frontend from this process, one origin with the API (the PWA needs it): a file
+    that exists is served as it is; any other page is the app shell (`index.html`), which routes
+    on the client. Paths under the API's own first segments (`v1`, `health`, the docs…) stay the
+    API's, so an unknown API path is its 404, never the shell."""
+    root = dist.resolve()
+    index = root / "index.html"
+    # From the API's own description (included routers are not flattened into app.routes),
+    # plus the pages that describe it.
+    described = [*app.openapi()["paths"], app.openapi_url, app.docs_url, app.redoc_url]
+    owned = {first for path in described if path and (first := path.strip("/").split("/")[0])}
+
+    @app.get("/{path:path}", include_in_schema=False)
+    async def frontend(path: str) -> FileResponse:
+        if path.split("/")[0] in owned:
+            raise HTTPException(status.HTTP_404_NOT_FOUND)
+        wanted = (root / path).resolve()
+        if wanted.is_relative_to(root) and wanted.is_file():
+            return FileResponse(wanted)
+        return FileResponse(index)
 
 
 @asynccontextmanager
