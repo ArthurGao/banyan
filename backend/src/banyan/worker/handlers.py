@@ -10,7 +10,7 @@ from banyan.errors import NotFound
 from banyan.jobs import Claimed, Handler, Permanent, RetryLater
 from banyan.models import JobKind, Topic
 from banyan.pipeline.events import ErrorEvent, Event
-from banyan.services import answers, notes, proposals, runs
+from banyan.services import answers, episodes, notes, proposals, runs
 from banyan.steward import StewardRejected, collection_name
 from banyan.worker.context import WorkerContext
 
@@ -32,6 +32,7 @@ def handlers(ctx: WorkerContext) -> dict[str, Handler]:
         registry[JobKind.KB_PROPOSE] = partial(kb_propose, ctx)
         registry[JobKind.KB_FEEDBACK] = partial(kb_feedback, ctx)
         registry[JobKind.KB_DEPRECATE] = partial(kb_deprecate, ctx)
+        registry[JobKind.EPISODE_SUBMIT] = partial(episode_submit, ctx)
     return registry
 
 
@@ -140,6 +141,16 @@ async def kb_deprecate(ctx: WorkerContext, job: Claimed) -> None:
                 ctx.sessions, ctx.steward, uuid.UUID(job.payload["message_id"]),
                 idempotency_key=job.idempotency_key,
             )  # fmt: skip
+
+
+async def episode_submit(ctx: WorkerContext, job: Claimed) -> None:
+    """A question branch's new turns go to steward's memory (design §8.5)."""
+    assert ctx.steward is not None
+    with _steward_rejections_final():
+        await episodes.submit(
+            ctx.sessions, ctx.steward, uuid.UUID(job.payload["branch_id"]),
+            user_id=ctx.settings.user_id, every=ctx.settings.episode_every,
+        )  # fmt: skip
 
 
 @contextmanager

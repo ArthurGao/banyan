@@ -82,7 +82,8 @@ async def test_every_tool_model_searches_and_cites_the_web_the_same_way() -> Non
             web=Web(search, FakeFetcher({URL: PAGE})),
         )  # fmt: skip
         inp = AskInput(
-            topic_id=uuid.uuid4(), node_id=uuid.uuid4(), message_id=uuid.uuid4(), mode="ask",
+            topic_id=uuid.uuid4(), node_id=uuid.uuid4(), message_id=uuid.uuid4(),
+            branch_id=uuid.uuid4(), mode="ask",
             question="What is the latest version of Kube (the fictional orchestrator)?",
             topic_title="Kube", goal=None, level="beginner", language_name="English",
             instructions=None, node_title="Releases", node_summary=None,

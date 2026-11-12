@@ -23,3 +23,8 @@ class Conflict(BanyanError):
 class Unprocessable(BanyanError):
     status = 422
     code = "unprocessable"
+
+
+class StewardNotConfigured(BanyanError):
+    status = 503
+    code = "steward_not_configured"

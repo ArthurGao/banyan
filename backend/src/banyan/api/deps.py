@@ -14,7 +14,9 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from banyan.services import memory
 from banyan.services.answers import Runtime
+from banyan.steward import StewardClient
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -51,3 +53,20 @@ def runtime(request: Request) -> Runtime:
 
 
 AnswerRuntime = Annotated[Runtime, Depends(runtime)]
+
+
+def steward(request: Request) -> StewardClient:
+    """Steward for a request that needs it now (the memory page); 503 when not configured."""
+    return memory.require(request.app.state.steward)
+
+
+Steward = Annotated[StewardClient, Depends(steward)]
+
+
+def user(request: Request) -> str:
+    """The single user (AGENTS.md rule 11)."""
+    user_id: str = request.app.state.settings.user_id
+    return user_id
+
+
+User = Annotated[str, Depends(user)]

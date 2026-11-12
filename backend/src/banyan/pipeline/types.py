@@ -43,6 +43,8 @@ class AskInput(BaseModel):
     topic_id: uuid.UUID
     node_id: uuid.UUID
     message_id: uuid.UUID  # the streaming placeholder this answer fills (design §9)
+    branch_id: uuid.UUID  # where the answer goes
+    episode_due: bool = False  # ask: with this turn the branch is due for an episode (§8.5)
     mode: Mode
     question: str
     force_llm: bool = False
@@ -188,6 +190,12 @@ class AnswerConfig:
     answer_timeout_s: float = 180.0  # the whole loop, searches and fetches included
     answer_loop_tokens: int = 100_000  # the whole loop, input and output, every request
     web_valid_days: int = 90  # web-derived knowledge expires (design §8.2)
+    # Steward's collection for KB cards the learner accepted (design §8.5); searched with the topic.
+    inbox_collection: str = "inbox"
+
+    def with_inbox(self, collections: list[str]) -> list[str]:
+        """Accepted cards are the learner's own knowledge: searched wherever a topic is."""
+        return [*collections, self.inbox_collection]
 
 
 @dataclass

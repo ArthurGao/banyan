@@ -151,7 +151,7 @@ nodes
 
 branches
   node_id, kind (main|question), title
-  closed_at, episode_job_id (nullable)
+  closed_at, episode_through (nullable)   -- 最后一条已作为 episode 交给 steward 的消息（B5 水位，§8.5；替代未用的 episode_job_id）
   -- 唯一约束：每个节点至多一个 kind=main 的分支
 
 generation_runs                      -- 一次"全部生成"（§5.1）
@@ -268,7 +268,7 @@ exports
 
 ### 5.5 学习状态
 
-完全由数据计算，不调用 LLM：节点状态（打开过讲解 → learning，用户标记完成 → done）、各节点提问次数、被标 wrong/incomplete 的次数（薄弱点信号）。这些信号写入记忆 episode 的上下文，供 steward 的记忆引擎抽取。
+完全由数据计算，不调用 LLM：节点状态（打开过讲解 → learning，用户标记完成 → done）、各节点提问次数、被标 wrong/incomplete 的次数（薄弱点信号）。这些信号写入记忆 episode 的上下文，供 steward 的记忆引擎抽取。B5 实现（`services/learning_state.py`）：当前节点的标题与状态、该节点被提问的次数、其答案被标 wrong / incomplete 的次数，主题进度（done / learning / not started 各几个）与最薄弱的 3 个节点；作为 episode 最后一条 `system` 消息，注明"由 Banyan 根据学习者的活动计算，不是学习者说的"。
 
 ## 6. Ask pipeline
 
@@ -488,7 +488,7 @@ provider 由配置决定（`BANYAN_SEARCH_PROVIDER`；**默认 Tavily**，owner 
 | Topic | collection（每个主题一个，名字 `topic-<topic_id>`，检索按名字匹配；`review_policy` 见 §8.1） |
 | 节点问答、讲解 | KB entry。tags：`app:banyan`、`topic:<topic_id>`、`node:<node_id>`、`source:<kb\|llm\|web\|mixed>`、`author:ai`、`origin_message:<message_id>`；web 来源另加 `url:<url>`（每个 URL 一个 tag）、`fetched_at:<ISO date>`、`valid_to:<ISO date>`。`content` 正文末尾附一行 Markdown 来源列表，供人阅读与 MCP 消费者（§8.6） |
 | web 来源的有效期 | **v1 由 Banyan 自己过滤**。检索返回的 item 不带 tags（B0 spike），所以过滤靠 Banyan 自己的记录：`messages.valid_to` 已过的答案，其 `proposed_entry_ids` 在检索（含 `kb_search`）中被剔除，不计入 judge，并按条目入队 `kb_deprecate`（键 `kb_deprecate:expired:<entry_id>`）。tags 仍照写，供 MCP 读者与将来。steward 的 `EntryOut` 已有 `valid_to`，检索也按有效期窗口过滤（2026-11-12 核对），只缺 `EntryCreate` 能写入它；有了以后 Banyan 的过滤可删（§13） |
-| 支线对话 | episode（`POST /v1/episodes`，`user_id=BANYAN_USER_ID`、`agent_id="banyan"`、`session_id=<branch_id>`）；学习状态信号（§5.5）作为最后一条 `role=system` 消息附在 `messages` 里，因为 `EpisodeCreate` 没有 context 字段 |
+| 支线对话 | episode（`POST /v1/episodes`，**只带 `user_id=BANYAN_USER_ID`**、`mode=sync`）；学习状态信号（§5.5）作为最后一条 `role=system` 消息附在 `messages` 里，因为 `EpisodeCreate` 没有 context 字段。不带 `agent_id` / `session_id`（B5 核对 steward 代码后修正）：steward 按字段精确匹配记忆的可见范围，带了 `session_id=<branch_id>` 的记忆只有指明同一 session 的检索才看得到，偏好就到不了别的主题；只按用户存，Banyan 的检索（只带 user）与其他工具经 MCP 都能用。`sync`：在请求里抽取，不等 steward 的缓冲（1,024 token 或空闲 30 分钟） |
 | 学习者记忆 | memory（steward 的记忆引擎抽取，**默认直接生效**，见 §8.5） |
 | 反馈 | `POST /v1/retrieve/{retrieval_id}/feedback {item_id, helpful, note}`；条目失效用 `POST /v1/kb/entries/{id}/deprecate` |
 | 用户 | 常量 `BANYAN_USER_ID` |
@@ -507,12 +507,15 @@ class StewardClient(Protocol):
                            idempotency_key) -> ProposedEntry        # POST /v1/kb/entries → entry_id（生效）或 candidate_id（待审）
     async def feedback(retrieval_id, item_id, *, helpful, note, idempotency_key) -> None
     async def deprecate_entry(entry_id, *, idempotency_key) -> None # review key；steward 不收理由，理由记在 Banyan 的任务里
-    async def submit_episode(user_id, agent_id, session_id, messages,
-                             *, idempotency_key) -> str            # POST /v1/episodes mode=async → episode_id
-    async def list_memories(user_id) -> list[Memory]               # GET /v1/memories?user_id=
-    async def delete_memory(memory_id) -> None
-    async def list_candidates(user_id) -> list[Candidate]          # GET /v1/candidates?stage=awaiting_user
-    async def decide_candidate(candidate_id, accept: bool, note) -> None
+    async def submit_episode(*, user_id, messages, idempotency_key) -> str
+                                                                    # POST /v1/episodes，mode=sync，不带 agent/session → episode_id
+    async def list_memories(user_id, *, cursor, limit) -> Page[Memory]  # GET /v1/memories?user_id=&status=active
+    async def set_memory_pinned(memory_id, pinned, *, idempotency_key) -> Memory   # PATCH /v1/memories/{id}
+    async def delete_memory(memory_id, *, idempotency_key) -> None  # DELETE /v1/memories/{id}（已删再删 409）
+    async def list_candidates(user_id, *, cursor, limit) -> Page[Candidate]
+                                                                    # GET /v1/candidates?stage=awaiting_user&status=pending
+    async def decide_candidate(candidate_id, *, accept, user_id, note, idempotency_key) -> None
+                                                                    # POST …/accept|reject，以该用户身份，scope=team（成为 KB 条目）
     async def health() -> Health
 ```
 
@@ -539,9 +542,10 @@ steward 的规则是“请求处理中不直接写 KB provider，由 outbox 异�
 
 ### 8.5 记忆
 
-- 支线关闭或每 `BANYAN_EPISODE_EVERY` 轮，提交 episode：支线消息 + 学习状态信号（§5.5）。
+- 支线关闭或每 `BANYAN_EPISODE_EVERY`（默认 5）个新的提问轮次，提交 episode：水位（`branches.episode_through`）之后的支线消息（不含被重答取代的答案；按 steward 上限截为最后 99 条、每条 20,000 字）+ 学习状态信号（§5.5）。提问支线每次提交答案都入队 `episode_submit`（同一支线去重），关闭支线也入队；任务自己判断够不够轮次，不够就什么都不做。幂等键 `episode:<branch>:<最后一条消息 id>`。讲解（main 分支）不是 episode。
 - **steward 现状**：记忆引擎抽取的记忆直接生效（steward 设计 §5 "Memory 默认自动写入"）；`/v1/candidates` 里 `awaiting_user` 的候选是 steward 认为值得存入 KB 的建议，不是记忆确认。因此 §1 目标中“经确认后长期生效”在 v1 退为：**记忆自动生效，Banyan 的记忆页列出全部记忆（`list_memories`）并可删除**；KB 候选卡片照常展示并 accept / reject。让记忆先确认再生效需要 steward 增加 namespace 级策略，作为变更需求提出（§13）。
-- 检索时 `include_memory=true`，关于学习者的记忆与主题指令一起进入上下文。
+- 检索时 `include_memory=true`，关于学习者的记忆与主题指令一起进入上下文。抽出的记忆是普通事实，按与问题的相似度召回；**必须始终生效的偏好由用户在记忆页置顶**（"始终应用"，steward `pinned`：置顶记忆是 core memory，每次检索都带上，最多 20 条；owner 2026-11-12 决定）。
+- 记忆页（§9 `/memory`）：列出生效的记忆（分页，最新在前）、置顶 / 取消置顶、删除；KB 候选卡片列出并接受 / 拒绝（接受以 `scope=team` 成为 KB 条目，落在 steward 的 inbox collection `BANYAN_STEWARD_INBOX`，Banyan 检索的"本主题"与"全部主题"范围都包含它）。这些操作**在请求里同步写 steward**（AGENTS.md 规则 6 的例外，owner 2026-11-12 决定：只改 steward 的状态，用户要立刻看到结果），每次一个新的幂等键；steward 不可用或未配置时 503。
 - 主题指令（用户手写）存在 Banyan，不经过 steward。
 - 默认引擎 lite-mem 会消解冲突：用户改了偏好（"别再用 Java 类比了"），旧记忆被取代（`superseded`），检索只返回新的；steward 合并结果时
   丢掉已失效的记忆，即使引擎还没同步完。记忆页只列生效的记忆。lite-mem 默认丢弃看起来像密码、密钥、证件号的内容。
@@ -580,13 +584,14 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 | POST | `/topics/{id}/quick-ask` | 快速提问：归类节点、建支线、作答（SSE） |
 | POST | `/messages/{id}/feedback` | `good` / `wrong` / `incomplete` + note + `reanswer`（默认 true）；后两者且 `reanswer=true` 时触发重答（SSE），否则同步返回 |
 | GET | `/branches/{id}/messages/latest` | 流中断后取回最新一条 assistant 消息（见下方 SSE 语义） |
-| GET | `/memory` | 学习者记忆列表（steward memories，§8.5） |
-| DELETE | `/memory/{id}` | 删除一条记忆 |
+| GET | `/memory` | 学习者生效的记忆（steward memories，最新在前；`?cursor=&limit=`，§8.5） |
+| PATCH | `/memory/{id}` | `{pinned}`：始终应用（每次检索都带上） |
+| DELETE | `/memory/{id}` | 删除一条记忆（204；已删除也是 204） |
 | GET | `/nodes/{id}/notes` | 节点笔记（还没有时 `version=0`、`content=null`）。`GET /nodes/{id}` 另带 `explanation_status`（none / generating / done / failed），打开已有讲解的节点会触发 prefetch |
 | POST | `/topics/{id}/export` | 在请求内渲染（线程里，毫秒级，不调模型），返回 export（`status` done 或 failed + `error`）；`export_render` 任务类型暂不使用 |
 | GET | `/exports/{id}` | HTML（`text/html`；`?download=true` 时作为附件）；失败的 export 返回 409 |
 | GET | `/memory/candidates` | 待确认的 KB 候选卡片（steward `awaiting_user`，§8.5） |
-| POST | `/memory/candidates/{id}` | `accept` / `reject` |
+| POST | `/memory/candidates/{id}` | `{decision: accept|reject, note}`（204；已决定 409）。记忆页的写入同步调用 steward，steward 不可用或未配置时 503（§8.5） |
 | GET | `/usage` | 每个主题：已提交答案数、KB 答案数、命中率、各 role token、估算节省（KB 答案数 × 本主题强模型答案平均 token）；`?topic_id=` 只看一个 |
 | GET | `/health` | 分层健康检查（见下） |
 
@@ -806,12 +811,31 @@ error     {code, message}
 
 ### B5 — 记忆与主题指令
 
-- [ ] 主题指令编辑与注入
-- [ ] 学习状态计算；episode 提交任务（信号作为 system 消息附带，§8.2）
-- [ ] 记忆页：记忆列表与删除（steward 自动生效，§8.5）；KB 候选卡片（确认 / 拒绝）；检索包含记忆
-- 验收（真 steward，`-m steward`；记忆异步生成，测试轮询 `list_memories` 直到出现或超时，不假设立即可见）：
+- [x] 主题指令编辑与注入（编辑早已有 PATCH；B5 补进 `answer_from_kb` 与 `notes_update`）
+- [x] 学习状态计算；episode 提交任务（信号作为 system 消息附带，§8.2）
+- [x] 记忆页：记忆列表、置顶与删除（steward 自动生效，§8.5）；KB 候选卡片（确认 / 拒绝）；检索包含记忆（后端；页面——另一个会话）
+- 验收（真 steward，`-m steward`；episode 以 `mode=sync` 提交，记忆在提交时抽取；记忆进入检索引擎仍经 steward 的同步队列，所以检索类断言轮询直到出现或超时，不假设立即可见）：
   - 抽取出的偏好（如“用 Java 类比”）在新主题的讲解中生效；删除后不再生效
   - 改口（“别用 Java 类比了”）后旧偏好不再出现在检索里（依赖引擎消解冲突，默认 lite-mem；换成 mem0 时由 steward 补偿）
+- **收尾记录（2026-11-12，后端）**：
+  - owner 决定：必须始终生效的偏好由记忆页置顶（steward `pinned`，每次检索都带上）；记忆页的写入（删除、置顶、卡片决定）在请求里同步写
+    steward，AGENTS.md 规则 6 改为"与 Banyan 自己的状态绑在一起的写入走任务，用户对 steward 状态的直接管理可以同步"。
+  - 与原设计的差异（已写回设计）：episode 只带 `user_id`、`mode=sync`（steward 按字段精确匹配记忆可见范围，带 `session_id` 的记忆到不了别的
+    主题；有 contract 测试守着）；`branches.episode_job_id` 换成水位 `episode_through`（migration 0007）；被接受的卡片在 steward 的 inbox
+    collection，检索的主题与全部主题范围都包含它。
+  - 验收：`tests/contract/test_memory_e2e.py`（`-m steward`，内嵌 steward 打开 `memory_llm`、steward 的模型用脚本代替，Banyan 的模型用
+    FakeLLM）——支线里说的偏好在关闭后成为记忆、置顶后进入另一个主题里无关节点的讲解、删除后不再出现；"no longer …"取代旧偏好、旧的离开
+    检索。另有 `test_memory_contract.py` 覆盖 6 个新的 StewardClient 方法。后端 365 个测试 + `-m steward` 7 个全绿。真 lite-mem 的抽取
+    与冲突消解要 `-m steward_live`（steward 起来后，owner 运行）。
+  - /simplify（四个代理）：episode 只在够轮次时入队（原来每次回答都入队、4/5 空跑；提问时按水位算 `episode_due`）；sync 提交 episode 单独
+    60 s 超时（10 s 的通用超时会让真模型的抽取超时重试、steward 再抽一遍）；steward 的 503 / 404 / 409 在 app 层统一成 problem，记忆页
+    路径参数改 UUID；inbox 只在 `AnswerConfig.with_inbox` 一处；"水位之后的消息"与笔记共用 `branches.after`；记忆页依赖进 `api/deps.py`；
+    contract 测试共用 `tests/contract/embedded.py`。没做：通用 `PageOut[T]`（两处用，会改 OpenAPI 类型名）；client 两个 list 方法合并；
+    删除用固定幂等键（24 小时后照样 409，仍要处理）。
+  - Codex：两条成立并修复（先写失败的测试）——水位指向的答案被重答取代后，下一个 episode 把整条支线重发（改为在全部已提交消息里定位水位，
+    `branches.unsent`）；§12 验收文字还写着异步抽取。驳回一条：提交 episode 后不检查水位更新的行数——任务运行时同一去重键同时只跑一个、
+    丢租约即取消处理器（B2），新旧快照并发只在进程卡住超过 5 分钟租约时出现，且已发给 steward 的无法撤回；最坏是重叠的轮次被抽两次，由
+    lite-mem 消解重复事实。修复涉及 §8，对修复再跑了一次 Codex：没有发现问题。
 
 ### B6 — 打磨与部署
 
@@ -839,7 +863,7 @@ error     {code, message}
 5. **KB 直出**时是否完全不调用模型（直接展示检索到的历史答案）以进一步省 token？**v1 采用保守选项**（`answer.from_kb` 便宜模型改写）；若要切换，加 `BANYAN_KB_VERBATIM=true`，`path` 中记 `answer: verbatim`，provenance 为空。
 6. **Claude Agent SDK 模式**是否需要，以及它与自有搜索工具的结果如何统一入库。
 7. **License**（建议 Apache-2.0，与 lite-rag 一致）。
-8. **记忆是否先确认再生效**（§8.5）：steward 默认自动写入。v1 接受自动写入 + 可删除。若要"确认后生效"，需向 steward 提 namespace 级 `memory_policy: confirm` 的变更需求。**需要用户决定**是否接受 v1 的降级。
+8. **记忆是否先确认再生效**（§8.5）：steward 默认自动写入。v1 接受自动写入 + 可删除 + 可置顶（B5 实现记忆页）。若要"确认后生效"，需向 steward 提 namespace 级 `memory_policy: confirm` 的变更需求。**需要用户决定**是否接受 v1 的降级。
 9. **判定阈值校准**：`judge.sufficiency` 的 `coverage` 由便宜模型自报，未校准。B3 验收后用真实问答样本抽查命中答案的反馈率，若 `wrong` 率明显高于路径 2，上调阈值或改用两段判定。
 10. **讲解生成方式的默认值**：v1 默认 `prefetch`（2026-11-11 建议，用户可在新主题流程中改选，也可改配置 `BANYAN_DEFAULT_EXPLAIN_MODE`）。
 

@@ -6,16 +6,11 @@ against llm-steward's embedded mode, models faked. Opt-in: `uv run pytest -m ste
 3. "Wrong" on the first answer re-answers it and deprecates its entry, which leaves retrieval.
 """
 
-import asyncio
 import json
-import time
 import uuid
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
-from llm_steward_client import AsyncSteward
 
 from banyan.llm import Role
 from banyan.llm.fakes import FakeLLM
@@ -33,7 +28,7 @@ from tests.conftest import (
     sse_events,
     worker_ctx,
 )
-from tests.contract.fake_embedder import FakeEmbedder
+from tests.contract.embedded import embedded_steward, until
 
 pytestmark = pytest.mark.steward
 
@@ -45,40 +40,21 @@ DRAFT = json.dumps(
 HIT = json.dumps({"sufficient": True, "coverage": 0.9, "missing": []})
 
 
-@asynccontextmanager
-async def embedded_steward(tmp_path: Path) -> AsyncIterator[HttpStewardClient]:
-    """Opened and closed in the test's own task (anyio requires it of the embedded app)."""
-    # Embedded mode has one caller identity: review scope covers collections and deprecation.
-    embedded = await AsyncSteward.embedded(
-        f"sqlite+aiosqlite:///{tmp_path}/steward.db",
-        review=True,
-        app_overrides={"embedder": FakeEmbedder()},
-    )
-    try:
-        yield HttpStewardClient(embedded._http, embedded._http)
-    finally:
-        await embedded.aclose()
-
-
 async def retrievable(steward: HttpStewardClient, topic_id: str, *, found: bool) -> None:
-    deadline = time.monotonic() + 20
-    while True:
+    async def items() -> int:
         result = await steward.retrieve(
-            QUESTION,
-            user_id="owner",
-            collections=[collection_name(topic_id)],
+            QUESTION, user_id="owner", collections=[collection_name(topic_id)],
             include_memory=False,
-        )
-        if bool(result.items) == found:
-            return
-        assert time.monotonic() < deadline, f"entry never became {'' if found else 'un'}retrievable"
-        await asyncio.sleep(0.2)
+        )  # fmt: skip
+        return len(result.items)
+
+    await until(items, lambda n: bool(n) == found, f"entry {'' if found else 'un'}retrievable")
 
 
 async def test_kb_first_round_trip_on_real_steward(
     db: Sessions, migrated_url: str, tmp_path: Path
 ) -> None:
-    async with embedded_steward(tmp_path) as steward:
+    async with embedded_steward(tmp_path / "steward.db") as steward:
         await _round_trip(db, migrated_url, steward)
 
 

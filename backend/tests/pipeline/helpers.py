@@ -27,6 +27,7 @@ def ask_input(**changes: Any) -> AskInput:
     base = AskInput(
         topic_id=topic,
         node_id=uuid.uuid4(),
+        branch_id=uuid.uuid4(),
         message_id=uuid.uuid4(),
         mode="ask",
         question="What does a Service do?",

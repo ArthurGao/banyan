@@ -8,6 +8,8 @@ add only what is new; do not repeat a point in other words. {{ sources_rule }}
 {% endblock %}
 {% block prompt %}
 Topic: {{ topic_title }}
+{% if instructions %}Learner's notes for this topic: {{ instructions }}
+{% endif %}
 Node: {{ node_title }}{% if node_summary %} ({{ node_summary }}){% endif %}
 
 Current notes (JSON):

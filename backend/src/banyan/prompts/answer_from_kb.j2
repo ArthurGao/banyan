@@ -7,6 +7,8 @@ least one source. Do not add facts the material does not contain. {{ sources_rul
 {% block prompt %}
 Topic: {{ topic_title }}
 Level: {{ level }}
+{% if instructions %}Learner's notes for this topic: {{ instructions }}
+{% endif %}
 Node: {{ node_title }}{% if node_summary %} ({{ node_summary }}){% endif %}
 
 {% if history %}

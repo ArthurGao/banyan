@@ -231,7 +231,8 @@ class ScopedSteward(FakeSteward):
     """Each scope returns its own items, as steward does for node, topic and all topics."""
 
     async def retrieve(self, query: str, **kw: Any) -> Any:  # type: ignore[override]
-        scope = "node" if kw.get("tags") else ("topic" if len(kw["collections"]) == 1 else "all")
+        widest = "topic-other" in kw["collections"]  # the other topic is only in the widest
+        scope = "node" if kw.get("tags") else ("all" if widest else "topic")
         self.retrievals.append({"scope": scope})
         n = {"node": 3, "topic": 5, "all": 6}[scope]
         shared = [entry("shared")]  # every scope also finds this one
@@ -341,3 +342,40 @@ async def test_a_kb_answer_streams_its_citations_before_the_writeback() -> None:
         ("kb", "e1", "te1"),
     ]
     assert kinds.index("CitationEvent") < kinds.index("writeback")
+
+
+async def test_knowledge_the_learner_accepted_from_a_card_is_retrieved_with_the_topic() -> None:
+    steward = FakeSteward()
+    inbox = await steward.ensure_collection("inbox", review_policy={}, idempotency_key="c")
+    await steward.create_entry(
+        inbox, title="Generics erase types", content="At runtime a List<String> is a List.",
+        tags=[], risk_level="low", idempotency_key="e",
+    )  # fmt: skip
+    fake = FakeLLM(
+        {
+            Role.JUDGE_FRESHNESS: [NOT_FRESH],
+            Role.JUDGE_SUFFICIENCY: [MISS],
+            Role.ANSWER_COMPOSE: [ANSWER],
+        }
+    )
+    inp = ask_input()
+    await Run(fake, steward)(inp)
+    assert "Generics erase types" in fake.calls_of(Role.JUDGE_SUFFICIENCY)[0].prompt
+    # The node scope stays the node's; the topic scope adds the inbox, so with one topic the
+    # widest scope is still the topic scope and is not asked again.
+    assert [r["collections"] for r in steward.retrievals] == [
+        [inp.collection],
+        [inp.collection, "inbox"],
+    ]
+
+
+async def test_an_answer_from_the_kb_follows_the_topic_instructions() -> None:
+    fake = FakeLLM(
+        {
+            Role.JUDGE_FRESHNESS: [NOT_FRESH],
+            Role.JUDGE_SUFFICIENCY: [HIT],
+            Role.ANSWER_FROM_KB: ["Stable IP [S1]."],
+        }
+    )
+    await Run(fake, FakeSteward(items=[entry("e1")]))(ask_input(instructions="Use Java analogies."))
+    assert "Use Java analogies." in fake.calls_of(Role.ANSWER_FROM_KB)[0].prompt

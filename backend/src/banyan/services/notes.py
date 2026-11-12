@@ -72,6 +72,7 @@ async def update_notes(
         wrapped = wrap(material)
         prompt = render(
             "notes_update", language_name=topic.language.prompt_name, topic_title=topic.title,
+            instructions=topic.instructions,
             node_title=node.title, node_summary=node.summary,
             current=before.model_dump_json(indent=1), material=wrapped.text,
             sources_rule=wrapped.rule,
@@ -171,14 +172,13 @@ async def _material(
         turns.setdefault(branch.id, []).append(message)
         titles[branch.id] = branch.title
     for branch_id, messages in turns.items():
-        ids = [str(m.id) for m in messages]
         mark = marks.get(str(branch_id))
-        new = messages[ids.index(mark) + 1 :] if mark in ids else messages
+        new = branches.after(messages, uuid.UUID(mark) if mark else None)
         if new:
             lines = [f"Question branch {branch_id}: {titles[branch_id]}"]
             lines += [f"{m.role.value}: {m.content_md}" for m in new]
             material.append(SourceText(str(branch_id), "kb", "\n".join(lines)))
-            marks[str(branch_id)] = ids[-1]
+            marks[str(branch_id)] = str(messages[-1].id)
     return material, {"explanation": explanation_id, "branches": marks}
 
 

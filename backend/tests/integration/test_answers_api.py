@@ -19,7 +19,15 @@ from banyan.pipeline import record
 from banyan.services import answers
 from banyan.steward import FakeSteward
 from banyan.worker.sweep import sweep_stale_streams
-from tests.conftest import NOT_FRESH, Sessions, create_node, create_topic, rows, sse_events
+from tests.conftest import (
+    NOT_FRESH,
+    Sessions,
+    create_branch,
+    create_node,
+    create_topic,
+    rows,
+    sse_events,
+)
 
 EXPLANATION = "A Service gives a set of pods one stable virtual IP and DNS name."
 
@@ -345,3 +353,16 @@ async def test_a_long_answer_is_not_swept_as_stale_while_it_runs(
         sweeper.cancel()
     assert type(events[-1]).__name__ == "DoneEvent"
     assert [m.status for m in (await _db(db))["messages"]] == [MessageStatus.DONE]
+
+
+async def test_edited_topic_instructions_reach_the_next_answer(
+    api: httpx.AsyncClient, fake_llm: FakeLLM
+) -> None:
+    topic = await create_topic(api)
+    node = await create_node(api, topic["id"], "Generics")
+    branch_id = await create_branch(api, node["id"])
+    await api.patch(f"/v1/topics/{topic['id']}", json={"instructions": "Use Java analogies."})
+    fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
+    fake_llm.script(Role.ANSWER_COMPOSE, "An answer.")
+    await api.post(f"/v1/branches/{branch_id}/ask", json={"question": "What is erasure?"})
+    assert "Use Java analogies." in fake_llm.calls_of(Role.ANSWER_COMPOSE)[0].prompt

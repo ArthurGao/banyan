@@ -62,6 +62,11 @@ async def update_branch(
                 s, JobKind.NOTES_UPDATE, key=f"notes_update:branch:{branch.id}:{uuid7()}",
                 payload={"node_id": str(branch.node_id)}, dedupe_key=f"notes:{branch.node_id}",
             )  # fmt: skip
+            # ... and to steward as an episode, whatever is left of it (design §8.5).
+            await enqueue(
+                s, JobKind.EPISODE_SUBMIT, key=f"episode_submit:close:{branch.id}:{uuid7()}",
+                payload={"branch_id": str(branch.id)}, dedupe_key=f"episode:{branch.id}",
+            )  # fmt: skip
         branch.closed_at = datetime.now(UTC) if closed else None
     await s.commit()
     return branch
@@ -87,6 +92,20 @@ async def get_answer(s: AsyncSession, message_id: uuid.UUID) -> Message:
 def explain_question(node: Node) -> str:
     """What an explanation answers (design §5.2): the node itself."""
     return f'Explain "{node.title}"'
+
+
+def after[M: Message](messages: list[M], mark: uuid.UUID | None) -> list[M]:
+    """The messages after the one with id `mark` (a watermark of what was already taken in:
+    notes, episodes); all of them when the mark is not among them."""
+    ids = [m.id for m in messages]
+    return messages[ids.index(mark) + 1 :] if mark in ids else messages
+
+
+async def unsent(s: AsyncSession, branch: Branch) -> list[Message]:
+    """The branch's current messages steward has not had in an episode (design §8.5). The
+    watermark is found among all committed messages: it may be an answer since answered again."""
+    done = await done_messages(s, branch.id)
+    return [m for m in after(done, branch.episode_through) if m.superseded_by is None]
 
 
 async def current_messages(s: AsyncSession, branch_id: uuid.UUID) -> list[Message]:

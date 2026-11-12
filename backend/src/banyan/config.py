@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # A KB hit: `judge.sufficiency` says sufficient with at least this coverage (design §6.5).
     judge_threshold: float = Field(default=0.7, ge=0, le=1)
     judge_threshold_explain: float = Field(default=0.85, ge=0, le=1)
+    # A question branch goes to steward as an episode when closed or after this many new turns
+    # (design §8.5).
+    episode_every: int = Field(default=5, ge=1)
     # Retrieval (design §6.2 step 3, §6.5): items kept and their estimated tokens.
     retrieve_top_k: int = Field(default=8, ge=1, le=50)
     context_budget: int = Field(default=3000, gt=0)
@@ -62,6 +65,8 @@ class Settings(BaseSettings):
     steward_api_key: SecretStr | None = None
     steward_review_key: SecretStr | None = None
     steward_timeout_s: float = Field(default=10.0, gt=0)
+    # Where steward puts KB cards the learner accepts (its `kb.suggest_collection`, design §8.5).
+    steward_inbox: str = Field(default="inbox", min_length=1, max_length=200)
 
     # The web (design §7.3, §6.5). No provider: no web tools; a time-sensitive answer is marked
     # `stale_risk`. Tavily is the default provider (owner decision 2026-11-12).

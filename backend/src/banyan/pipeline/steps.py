@@ -43,12 +43,14 @@ def _context(inp: AskInput) -> CallContext:
 
 async def scope(inp: AskInput, deps: Deps) -> ScopeOut:
     """Nearest first: this node, this topic, every active topic (design §6.2 step 1)."""
+    topic = deps.config.with_inbox([inp.collection])  # §8.5
+    every = deps.config.with_inbox(inp.all_collections)
     scopes = [
         Scope(collections=[inp.collection], tags=[f"node:{inp.node_id}"]),
-        Scope(collections=[inp.collection]),
+        Scope(collections=topic),
     ]
-    if set(inp.all_collections) != {inp.collection}:  # with one topic, "all" is "this topic"
-        scopes.append(Scope(collections=inp.all_collections))
+    if set(every) != set(topic):  # with one topic, "all" is "this topic"
+        scopes.append(Scope(collections=every))
     return ScopeOut(scopes=scopes)
 
 
@@ -236,6 +238,16 @@ async def writeback(inp: AskInput, answered: AnswerOut, deps: Deps) -> Writeback
                 kind="kb_deprecate",
                 idempotency_key=f"kb_deprecate:expired:{entry_id}",
                 payload={"entry_ids": [entry_id]},
+            )
+        )
+    if inp.episode_due:
+        # The caller counted the branch's new turns (design §8.5); the job checks again.
+        jobs.append(
+            JobSpec(
+                kind="episode_submit",
+                idempotency_key=f"episode_submit:{inp.message_id}",
+                payload={"branch_id": str(inp.branch_id)},
+                dedupe_key=f"episode:{inp.branch_id}",
             )
         )
     if inp.mode == "explain":

@@ -46,6 +46,11 @@ async def ask(
 ) -> EventSourceResponse:
     """Answers a question in the branch through the ask pipeline (design §6), streamed."""
     inp = await answers.start_ask(
-        s, branch_id, body.question, history_budget=rt.history_budget, allow_web=body.allow_web
+        s,
+        branch_id,
+        body.question,
+        history_budget=rt.history_budget,
+        allow_web=body.allow_web,
+        episode_every=rt.episode_every,
     )
     return sse.stream(answers.stream_answer(inp, rt))

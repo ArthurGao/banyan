@@ -4,6 +4,10 @@ Nothing else knows its wire format.
 """
 
 from banyan.steward.client import (
+    Candidate,
+    EpisodeMessage,
+    Memory,
+    Page,
     ProposedEntry,
     RetrievalItem,
     RetrievalResult,
@@ -18,8 +22,12 @@ from banyan.steward.fake import FakeSteward
 from banyan.steward.http import HttpStewardClient
 
 __all__ = [
+    "Candidate",
+    "EpisodeMessage",
     "FakeSteward",
     "HttpStewardClient",
+    "Memory",
+    "Page",
     "ProposedEntry",
     "RetrievalItem",
     "RetrievalResult",

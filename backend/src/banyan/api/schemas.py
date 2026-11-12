@@ -240,3 +240,47 @@ class TopicUsageOut(BaseModel):
     estimated_tokens_saved: int = Field(
         description="KB answers times this topic's average strong-model answer (design §11.2)"
     )
+
+
+class MemoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    content: str
+    memory_type: str
+    pinned: bool = Field(description="Always apply: put in every answer's context (design §8.5)")
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryPageOut(BaseModel):
+    items: list[MemoryOut]
+    next_cursor: str | None
+
+
+class MemoryPatch(BaseModel):
+    pinned: bool
+
+
+class CandidateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    title: str
+    content: str
+    reason: str | None
+    risk_level: Literal["low", "medium", "high"]
+    created_at: datetime
+    expires_at: datetime | None
+
+
+class CandidatePageOut(BaseModel):
+    items: list[CandidateOut]
+    next_cursor: str | None
+
+
+class CandidateDecision(BaseModel):
+    decision: Literal["accept", "reject"] = Field(
+        description="accept: the card becomes a knowledge base entry"
+    )
+    note: str | None = Field(default=None, max_length=2000)

@@ -184,3 +184,14 @@ async def test_turns_added_after_reopening_a_branch_reach_the_notes(
     first, later = (call.prompt for call in writer.calls_of(Role.NOTES_UPDATE)[1:])
     assert "First answer." in first
     assert "Later answer." in later and "First answer." not in later
+
+
+async def test_the_notes_follow_the_topic_instructions(
+    api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions, migrated_url: str
+) -> None:
+    topic_id, _, _ = await explained_node(api, fake_llm, EXPLANATION)
+    await api.patch(f"/v1/topics/{topic_id}", json={"instructions": "Notes in bullet points."})
+    writer = FakeLLM({Role.NOTES_UPDATE: [notes_json()]})
+    assert await run_notes_job(worker_ctx(db, migrated_url, writer)) == "done"
+    (call,) = writer.calls_of(Role.NOTES_UPDATE)
+    assert "Notes in bullet points." in call.prompt

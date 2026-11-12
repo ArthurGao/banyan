@@ -107,7 +107,10 @@ class Branch(Base):
     kind: Mapped[BranchKind] = mapped_column(enum_column(BranchKind, "branch_kind"))
     title: Mapped[str] = mapped_column(String(300))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    episode_job_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    # The last message sent to steward in an episode (design §8.5): the next one starts after it.
+    episode_through: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("messages.id", ondelete="SET NULL", use_alter=True)
+    )
 
 
 class Message(Base):

@@ -72,6 +72,7 @@ class Runtime:
     # The sweeper fails `streaming` answers untouched for this long; a running one touches its
     # placeholder well within it, so only abandoned ones are swept (design §9).
     stale_s: float = 600.0
+    episode_every: int = 5
     config: AnswerConfig = field(default_factory=AnswerConfig)
     web: Web | None = None
 
@@ -91,11 +92,12 @@ class Runtime:
             answer_max_steps=settings.answer_max_steps,
             answer_max_tokens=settings.answer_max_tokens,
             answer_timeout_s=settings.answer_timeout_s, web_valid_days=settings.web_valid_days,
-            answer_loop_tokens=settings.answer_loop_tokens,
+            answer_loop_tokens=settings.answer_loop_tokens, inbox_collection=settings.steward_inbox,
         )  # fmt: skip
         return cls(
             llm, steward, sessions, settings.user_id, settings.history_budget,
             stale_s=settings.stream_stale_s, config=config, web=web,
+            episode_every=settings.episode_every,
         )  # fmt: skip
 
 
@@ -115,13 +117,16 @@ async def start_explain(s: AsyncSession, node_id: uuid.UUID) -> AskInput:
 
 async def start_ask(
     s: AsyncSession, branch_id: uuid.UUID, question: str, *, history_budget: int,
-    allow_web: bool = True,
+    allow_web: bool = True, episode_every: int = 5,
 ) -> AskInput:  # fmt: skip
     branch = await branches.get_branch(s, branch_id)
     if branch.closed_at is not None:
         raise Conflict("the branch is closed")
     node = await outline.get_node(s, branch.node_id)
     history = await branches.current_messages(s, branch_id)
+    # With this question, does the branch hold enough new turns for an episode (design §8.5)?
+    unsent = await branches.unsent(s, branch)
+    due = 1 + sum(m.role == MessageRole.USER for m in unsent) >= episode_every
     s.add(
         Message(
             branch_id=branch_id,
@@ -130,9 +135,10 @@ async def start_ask(
             content_md=question,
         )
     )
-    return await _ask_input(
+    inp = await _ask_input(
         s, node, branch_id, question, _trim(history, history_budget), allow_web=allow_web
     )
+    return inp.model_copy(update={"episode_due": due})
 
 
 async def start_reanswer(
@@ -164,8 +170,8 @@ async def _explain_input(s: AsyncSession, node: Node, branch_id: uuid.UUID) -> A
     topic = await topics.get_topic(s, node.topic_id)
     nodes = await outline.topic_nodes(s, node.topic_id)
     return await _input(
-        s, topic, node, placeholder, mode="explain", question=branches.explain_question(node),
-        outline_text=outline.outline_text(nodes),
+        s, topic, node, placeholder, branch_id, mode="explain",
+        question=branches.explain_question(node), outline_text=outline.outline_text(nodes),
     )  # fmt: skip
 
 
@@ -177,7 +183,7 @@ async def _ask_input(
     placeholder = await _placeholder(s, branch_id)
     topic = await topics.get_topic(s, node.topic_id)
     return await _input(
-        s, topic, node, placeholder, mode="ask", question=question, history=history,
+        s, topic, node, placeholder, branch_id, mode="ask", question=question, history=history,
         explanation=explained.content_md[:EXPLANATION_CONTEXT_CHARS] if explained else None,
         allow_web=allow_web,
     )  # fmt: skip
@@ -274,6 +280,7 @@ async def _input(
     topic: Topic,
     node: Node,
     message_id: uuid.UUID,
+    branch_id: uuid.UUID,
     *,
     mode: Mode,
     question: str,
@@ -284,7 +291,7 @@ async def _input(
 ) -> AskInput:
     active = await s.scalars(select(Topic.id).where(Topic.status == TopicStatus.ACTIVE))
     return AskInput(
-        topic_id=topic.id, node_id=node.id, message_id=message_id,
+        topic_id=topic.id, node_id=node.id, message_id=message_id, branch_id=branch_id,
         mode=mode, question=question, topic_title=topic.title, goal=topic.goal,
         level=topic.level.value, language_name=topic.language.prompt_name,
         instructions=topic.instructions, node_title=node.title, node_summary=node.summary,

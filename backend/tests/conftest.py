@@ -31,7 +31,7 @@ from banyan.llm import Role
 from banyan.llm.fakes import FakeLLM
 from banyan.main import create_app
 from banyan.models import Base
-from banyan.steward import FakeSteward
+from banyan.steward import FakeSteward, StewardClient
 from banyan.storage.db import engine_scope, session_factory
 from banyan.tools.web import Web
 from banyan.worker.context import WorkerContext
@@ -218,7 +218,7 @@ def no_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def worker_ctx(
-    db: Sessions, url: str, llm: FakeLLM | None = None, steward: FakeSteward | None = None,
+    db: Sessions, url: str, llm: FakeLLM | None = None, steward: StewardClient | None = None,
     **settings: Any,
 ) -> WorkerContext:  # fmt: skip
     """A worker on the test schema; `settings` override the test settings."""

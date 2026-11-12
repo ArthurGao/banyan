@@ -38,8 +38,8 @@ If a change must contradict the design, update the design in the same change and
 
 ## Current stage
 
-**B4 — web (search, fetch, the answer loop) — backend done** (the screens are another session's).
-B5 (memory and topic instructions) next. Track the checklist in design §12; ticked items are done and verified. Open
+**B5 — memory and topic instructions — backend done** (the screens are another session's).
+B6 (polish and deployment) next. Track the checklist in design §12; ticked items are done and verified. Open
 questions are in design §13 — do not decide them silently; ask, or implement the conservative option
 behind config.
 
@@ -61,9 +61,12 @@ behind config.
 5. **Provenance on every answer.** Each assistant message records its `source` (`kb` | `llm` | `web` |
    `mixed`), the pipeline `path`, `role:provider:model`, citations (steward entry ids, URLs) and token
    usage. The UI shows the source. Web-derived KB proposals carry `url`, `fetched_at` and `valid_to`.
-6. **Never write to steward from a request handler.** KB proposals, episodes and feedback are enqueued in
-   Banyan's `jobs` table in the same transaction as the message, and pushed by the worker with retries.
-   (Reads — retrieval — happen in the request.)
+6. **Writes to steward tied to Banyan's own state never happen in a request handler.** KB proposals,
+   episodes and feedback are enqueued in Banyan's `jobs` table in the same transaction as the message,
+   and pushed by the worker with retries. (Reads — retrieval — happen in the request.) The one
+   exception (owner decision 2026-11-12): the learner's direct management of steward state on the memory
+   page — deleting or pinning a memory, deciding a KB card — is synchronous, because nothing of Banyan's
+   changes with it and the learner expects the result; it fails with 503 when steward is down.
 7. **HTML export is deterministic.** It renders stored notes through a Jinja2 template; no LLM call during
    rendering. Output is one self-contained file (inline CSS/JS, no network requests), light and dark.
 8. **Tests never call real LLMs, search APIs or steward.** Use `FakeLLM`, `FakeSearch`, `FakeSteward`.

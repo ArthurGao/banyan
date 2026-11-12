@@ -149,9 +149,10 @@ def build_tools(
         """Search the learner's knowledge base: what was learned and confirmed before, across
         topics. Results are labelled S1, S2, …; cite one as [S1] right after the sentence."""
         assert deps.steward is not None
+        searched = deps.config.with_inbox(inp.all_collections)
         try:
             result = await deps.steward.retrieve(
-                query, user_id=deps.user_id, collections=inp.all_collections,
+                query, user_id=deps.user_id, collections=searched,
                 include_memory=False, top_k=deps.config.top_k,
                 token_budget=deps.config.context_budget,
             )  # fmt: skip
