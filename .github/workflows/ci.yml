@@ -44,7 +44,22 @@ jobs:
 
   contract:
     # The steward contract spike on steward's embedded mode: in-process, fake embedder, no models.
+    # The KB-first end-to-end test (B3) also needs Banyan's database.
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg18
+        env:
+          POSTGRES_USER: banyan
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: banyan
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U banyan -d banyan"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      BANYAN_TEST_DATABASE_URL: postgresql+asyncpg://banyan:ci@localhost:5432/banyan
     defaults:
       run:
         working-directory: backend

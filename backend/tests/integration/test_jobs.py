@@ -50,7 +50,11 @@ async def test_claim_takes_the_oldest_due_job_and_leases_it(db: Sessions) -> Non
 async def test_many_workers_never_claim_the_same_job(db: Sessions) -> None:
     for round_ in range(5):
         await add(db, f"only-{round_}")
-        got = await asyncio.gather(*(queue(db, f"w{i}").claim([KIND]) for i in range(20)))
+        # A lease far longer than the round: a takeover after expiry (attempts=2) is correct and
+        # happened on a slow CI runner with 0.4 s; this test is about concurrent claims only.
+        got = await asyncio.gather(
+            *(queue(db, f"w{i}", lease_s=60).claim([KIND]) for i in range(20))
+        )
         assert len([c for c in got if c is not None]) == 1
 
 
