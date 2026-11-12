@@ -11,7 +11,7 @@ pytestmark = pytest.mark.usefixtures("no_env")
 
 def test_database_url_is_required() -> None:
     with pytest.raises(ValidationError, match="database_url"):
-        Settings(_env_file=None, api_token=TOKEN)  # type: ignore[call-arg, arg-type]
+        Settings(_env_file=None, api_token=TOKEN)
 
 
 def test_defaults_to_the_banyan_schema_and_no_steward() -> None:
@@ -45,10 +45,10 @@ def test_a_complete_steward_group_is_accepted() -> None:
     settings = Settings(
         _env_file=None,
         database_url=URL,
-        api_token=TOKEN,  # type: ignore[arg-type]
+        api_token=TOKEN,
         steward_url="http://s",
-        steward_api_key="k",  # type: ignore[arg-type]
-        steward_review_key="r",  # type: ignore[arg-type]
+        steward_api_key="k",
+        steward_review_key="r",
     )
     assert settings.steward_review_key is not None
     assert settings.steward_review_key.get_secret_value() == "r"
@@ -66,10 +66,10 @@ def test_blank_steward_keys_count_as_missing() -> None:
         Settings(
             _env_file=None,
             database_url=URL,
-            api_token=TOKEN,  # type: ignore[arg-type]
+            api_token=TOKEN,
             steward_url="http://s",
-            steward_api_key="",  # type: ignore[arg-type]
-            steward_review_key=" ",  # type: ignore[arg-type]
+            steward_api_key="",
+            steward_review_key=" ",
         )
 
 
@@ -81,22 +81,22 @@ def test_the_steward_url_must_be_http_with_a_host(url: str) -> None:
         Settings(
             _env_file=None,
             database_url=URL,
-            api_token=TOKEN,  # type: ignore[arg-type]
+            api_token=TOKEN,
             steward_url=url,
-            steward_api_key="k",  # type: ignore[arg-type]
-            steward_review_key="r",  # type: ignore[arg-type]
+            steward_api_key="k",
+            steward_review_key="r",
         )
 
 
 def test_the_api_token_is_required_and_not_trivially_short() -> None:
     with pytest.raises(ValidationError, match="api_token"):
-        Settings(_env_file=None, database_url=URL)  # type: ignore[call-arg]
+        Settings(_env_file=None, database_url=URL)
     with pytest.raises(ValidationError, match="api_token"):
-        Settings(_env_file=None, database_url=URL, api_token="short")  # type: ignore[arg-type]
+        Settings(_env_file=None, database_url=URL, api_token="short")
 
 
 def test_a_search_provider_without_its_key_fails_at_startup() -> None:
     with pytest.raises(ValidationError, match="search_api_key is required"):
-        Settings(_env_file=None, database_url=URL, api_token=TOKEN, search_provider="tavily")  # type: ignore[arg-type]
-    blank = Settings(_env_file=None, database_url=URL, api_token=TOKEN, search_provider="")  # type: ignore[arg-type]
+        Settings(_env_file=None, database_url=URL, api_token=TOKEN, search_provider="tavily")
+    blank = Settings(_env_file=None, database_url=URL, api_token=TOKEN, search_provider="")
     assert blank.search_provider is None  # `BANYAN_SEARCH_PROVIDER=` in .env is unset

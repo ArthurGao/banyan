@@ -6,17 +6,23 @@ while it keeps serving. Checks report states, never URLs or secrets.
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Literal
+from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
-from banyan.steward import StewardReader, StewardUnavailable
+from banyan.steward import StewardHealth, StewardUnavailable
 
 CheckStatus = Literal["ok", "degraded", "error", "timeout", "unreachable", "not_configured", "fake"]
 OverallStatus = Literal["ok", "degraded", "down"]
 
 # Under a typical 4 s container HEALTHCHECK, so /health always answers with a report.
 CHECK_TIMEOUT_SECONDS = 3.0
+
+
+class StewardProbe(Protocol):
+    """All /health needs of steward."""
+
+    async def health(self) -> StewardHealth: ...
 
 
 class HealthChecks(BaseModel):
@@ -33,7 +39,7 @@ class HealthOut(BaseModel):
 
 async def check_health(
     db_ping: Callable[[], Awaitable[None]],
-    steward: StewardReader | None,
+    steward: StewardProbe | None,
     *,
     roles: dict[str, CheckStatus] | None = None,
     search: CheckStatus = "not_configured",

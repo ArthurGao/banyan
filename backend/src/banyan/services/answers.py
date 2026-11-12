@@ -11,7 +11,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -187,7 +187,7 @@ async def _ask_input(
     )
 
 
-async def stream_answer(inp: AskInput, rt: Runtime) -> AsyncIterator[Event]:
+async def stream_answer(inp: AskInput, rt: Runtime) -> AsyncGenerator[Event]:
     """Runs the pipeline in a task and forwards its events. The task owns every outcome; leaving
     the stream cancels it (design §9)."""
     queue: asyncio.Queue[Event | None] = asyncio.Queue()

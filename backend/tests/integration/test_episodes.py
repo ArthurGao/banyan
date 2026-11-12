@@ -44,7 +44,7 @@ async def ask(
 
 async def run_episodes(ctx: WorkerContext) -> list[str | None]:
     """Runs every pending episode job; their end states."""
-    states = []
+    states: list[str | None] = []
     while (state := await run_next(ctx, [JobKind.EPISODE_SUBMIT.value])) is not None:
         states.append(state)
     return states

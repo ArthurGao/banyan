@@ -25,7 +25,10 @@ async def _version(url: str) -> str | None:
         )
         if exists is None:
             return None
-        return await conn.scalar(text(f"SELECT version_num FROM {TEST_SCHEMA}.alembic_version"))
+        version: str | None = await conn.scalar(
+            text(f"SELECT version_num FROM {TEST_SCHEMA}.alembic_version")
+        )
+        return version
 
 
 async def test_migrations_reach_head_match_the_models_and_downgrade(pg_url: str) -> None:

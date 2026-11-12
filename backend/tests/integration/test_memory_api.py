@@ -11,7 +11,7 @@ import pytest
 
 from banyan.llm.fakes import FakeLLM
 from banyan.main import create_app
-from banyan.steward import Candidate, FakeSteward
+from banyan.steward import Candidate, FakeSteward, Memory
 from banyan.steward.fake import FakeMemory
 from tests.conftest import API_TOKEN, app_client, client_for, settings_for
 
@@ -115,7 +115,7 @@ async def test_each_write_carries_its_own_idempotency_key(
     keys: list[str] = []
     original = steward.set_memory_pinned
 
-    async def recording(memory_id: str, pinned: bool, *, idempotency_key: str) -> object:
+    async def recording(memory_id: str, pinned: bool, *, idempotency_key: str) -> Memory:
         keys.append(idempotency_key)
         return await original(memory_id, pinned, idempotency_key=idempotency_key)
 

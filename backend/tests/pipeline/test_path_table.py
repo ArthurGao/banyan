@@ -230,7 +230,7 @@ async def test_without_steward_retrieval_is_not_configured() -> None:
 class ScopedSteward(FakeSteward):
     """Each scope returns its own items, as steward does for node, topic and all topics."""
 
-    async def retrieve(self, query: str, **kw: Any) -> Any:  # type: ignore[override]
+    async def retrieve(self, query: str, **kw: Any) -> Any:
         widest = "topic-other" in kw["collections"]  # the other topic is only in the widest
         scope = "node" if kw.get("tags") else ("all" if widest else "topic")
         self.retrievals.append({"scope": scope})

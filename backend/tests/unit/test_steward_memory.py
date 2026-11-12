@@ -38,7 +38,8 @@ def candidate_json(candidate_id: str = CANDIDATE_ID) -> dict[str, Any]:
 
 class Recorder:
     def __init__(self, status: int, body: Any) -> None:
-        self.status, self.body, self.seen = status, body, []
+        self.status, self.body = status, body
+        self.seen: list[httpx.Request] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.seen.append(request)

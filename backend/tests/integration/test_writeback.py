@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
+from sqlalchemy import update
 
 from banyan.llm import Role
 from banyan.llm.fakes import FakeLLM
@@ -59,7 +60,7 @@ async def test_an_answer_is_proposed_with_the_design_tags(
     assert (await job_of(db, JobKind.KB_PROPOSE)).attempts == 0
     assert await run_kind(ctx, JobKind.COLLECTION_ENSURE) == "done"
     async with db() as s:  # skip the wait
-        await s.execute(Job.__table__.update().values(run_after=Job.created_at))
+        await s.execute(update(Job).values(run_after=Job.created_at))
         await s.commit()
     assert await run_kind(ctx, JobKind.KB_PROPOSE) == "done"
 

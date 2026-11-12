@@ -10,6 +10,7 @@ from banyan.pipeline.events import Event, PathEntry, PathEvent
 from banyan.pipeline.run import run_ask
 from banyan.pipeline.types import AnswerOut, AskInput, Deps, JobSpec
 from banyan.steward import FakeSteward, RetrievalItem, collection_name
+from banyan.steward.client import ItemKind
 from banyan.tools.web import Web
 
 ANSWER = "Services give pods a stable virtual IP."
@@ -76,12 +77,12 @@ class Run:
         return [(e.entry.step, e.entry.status) for e in self.events if isinstance(e, PathEvent)]
 
 
-def entry(i: str, kind: str = "entry") -> RetrievalItem:
+def entry(i: str, kind: ItemKind = "entry") -> RetrievalItem:
     return RetrievalItem(
         id=i,
         kind=kind,
         status="active",
         score=0.5,
-        title=f"t{i}",  # type: ignore[arg-type]
+        title=f"t{i}",
         content=f"content {i}",
     )

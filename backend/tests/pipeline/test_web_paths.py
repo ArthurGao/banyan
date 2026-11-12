@@ -196,7 +196,8 @@ async def test_kb_search_adds_its_retrieval_and_its_items_can_be_cited() -> None
     out = await run(ask_input())
     assert len(out.retrieval_ids) == 3  # node and topic scopes, then the tool's own search
     assert steward.retrievals[-1]["query"] == "service ports"
-    assert steward.retrievals[-1]["collections"][-1] == "inbox"  # accepted cards too
+    searched = steward.retrievals[-1]["collections"]
+    assert isinstance(searched, list) and searched[-1] == "inbox"  # accepted cards too
     (cited,) = out.answer.citations
     assert (cited.kind, cited.entry_id, cited.retrieval_id) == ("kb", "e1", out.retrieval_ids[0])
     assert out.answer.source == "llm"

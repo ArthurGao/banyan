@@ -4,6 +4,7 @@ timeouts, aborts and one usage row per attempt (design §7.2, §4)."""
 import asyncio
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
@@ -89,7 +90,8 @@ async def test_streaming_yields_the_text_and_records_usage_at_the_end() -> None:
             Role.NODE_EXPLAIN, instructions="explain", prompt="pods", context=CTX, usage=usage
         )
     ]
-    assert len(chunks) > 1 and "".join(chunks) == text
+    texts = [c for c in chunks if isinstance(c, str)]
+    assert texts == chunks and len(chunks) > 1 and "".join(texts) == text
     assert rows(usage) == [("node.explain", 1, True, None)]
     assert usage.output_tokens > 0
 
@@ -223,10 +225,10 @@ def test_the_role_layers_error_kinds_are_the_databases() -> None:
     assert set(get_args(ErrorKind)) == {k.value for k in StoredErrorKind}
 
 
-async def collect(fake: FakeLLM, usage: UsageCollector, **kw: object) -> list[object]:
+async def collect(fake: FakeLLM, usage: UsageCollector, **kw: Any) -> list[object]:
     stream = fake.client().stream(
         Role.ANSWER_COMPOSE, instructions="answer", prompt="q", context=CTX, usage=usage, **kw
-    )  # type: ignore[arg-type]
+    )
     return [item async for item in stream]
 
 

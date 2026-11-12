@@ -114,7 +114,7 @@ async def test_generate_all_explains_every_node_exactly_once(
     )
 
     async def finished() -> bool:
-        return (await run_status(api, run["id"]))["status"] == "done"
+        return bool((await run_status(api, run["id"]))["status"] == "done")
 
     await drain(run_ctx(db, migrated_url, explain_only()), finished)
     assert await explanations(db) == {uuid.UUID(n): 1 for n in nodes}
@@ -147,7 +147,7 @@ async def test_a_killed_worker_mid_node_does_not_duplicate_it(
         await s.commit()
 
     async def finished() -> bool:
-        return (await run_status(api, run["id"]))["status"] == "done"
+        return bool((await run_status(api, run["id"]))["status"] == "done")
 
     ctx = run_ctx(db, migrated_url, explain_only(), job_lease_s=0.3, stream_stale_s=60)
     await drain(ctx, finished, limit_s=20)
@@ -172,7 +172,7 @@ async def test_a_run_stops_at_its_budget_and_continues_when_it_grows(
                           json={"token_budget": int(3.5 * t)})).json()  # fmt: skip
 
     async def exhausted() -> bool:
-        return (await run_status(api, run["id"]))["status"] == "budget_exhausted"
+        return bool((await run_status(api, run["id"]))["status"] == "budget_exhausted")
 
     # One node at a time, so "a node fits" is decided on exact usage (design: running ones finish).
     ctx = run_ctx(db, migrated_url, llm, bulk_concurrency=1, worker_slots=1)
@@ -183,7 +183,7 @@ async def test_a_run_stops_at_its_budget_and_continues_when_it_grows(
     assert grown.json()["status"] == "running"
 
     async def finished() -> bool:
-        return (await run_status(api, run["id"]))["status"] == "done"
+        return bool((await run_status(api, run["id"]))["status"] == "done")
 
     await drain(ctx, finished)
     assert await explanations(db) == {uuid.UUID(n): 1 for n in nodes}
@@ -240,7 +240,7 @@ async def test_pause_holds_the_run_and_resume_finishes_it(
     await api.patch(f"/v1/generation-runs/{run['id']}", json={"action": "resume"})
 
     async def finished() -> bool:
-        return (await run_status(api, run["id"]))["status"] == "done"
+        return bool((await run_status(api, run["id"]))["status"] == "done")
 
     await drain(ctx, finished, limit_s=5)  # resuming makes the waiting jobs due at once
     assert await explanations(db) == {uuid.UUID(n): 1 for n in nodes}
@@ -359,7 +359,7 @@ async def test_a_run_settles_when_its_last_node_dies_without_anyone_reading_it(
     async def run_over() -> bool:
         async with db() as s:
             found = await s.get(GenerationRun, uuid.UUID(run["id"]))
-            await s.refresh(found)  # type: ignore[arg-type]
+            await s.refresh(found)
             return found is not None and found.status == RunStatus.DONE
 
     await drain(ctx, run_over)
@@ -381,7 +381,7 @@ async def test_a_run_adopts_a_prefetch_job_already_waiting_for_its_node(
     }  # fmt: skip
 
     async def finished() -> bool:
-        return (await run_status(api, run["id"]))["status"] == "done"
+        return bool((await run_status(api, run["id"]))["status"] == "done")
 
     await drain(run_ctx(db, migrated_url, explain_only()), finished)
     usage = [u for u in await rows(db, UsageLog) if u.role == "node.explain"]

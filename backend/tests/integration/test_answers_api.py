@@ -63,8 +63,8 @@ async def test_explaining_a_node_streams_then_commits_everything_together(
         "scope", "freshness", "retrieve", "judge", "answer", "writeback",
     ]  # fmt: skip
 
-    db = await _db(db)
-    (message,) = db["messages"]
+    saved = await _db(db)
+    (message,) = saved["messages"]
     assert (str(message.id), message.status, message.content_md) == (
         message_id, MessageStatus.DONE, EXPLANATION,
     )  # fmt: skip
@@ -73,10 +73,10 @@ async def test_explaining_a_node_streams_then_commits_everything_together(
     )
     # node and topic scopes; with one topic the "all" scope is the topic and is not repeated
     assert len(message.steward_retrieval_ids) == 2
-    assert [(u.role, u.ok, str(u.message_id)) for u in db["usage"]] == [
+    assert [(u.role, u.ok, str(u.message_id)) for u in saved["usage"]] == [
         ("judge.freshness", True, message_id), ("node.explain", True, message_id),
     ]  # fmt: skip
-    assert sorted(j.idempotency_key for j in db["jobs"]) == [
+    assert sorted(j.idempotency_key for j in saved["jobs"]) == [
         f"kb_propose:{message_id}", f"notes_update:{message_id}",
     ]  # fmt: skip
 
@@ -123,14 +123,14 @@ async def test_a_failed_role_marks_the_answer_failed_with_usage_and_no_jobs(
     events = sse_events((await api.post(f"/v1/nodes/{node['id']}/explain")).text)
     assert events[-1] == ("error", {"code": "role_provider", "message": events[-1][1]["message"]})
 
-    db = await _db(db)
-    (message,) = db["messages"]
+    saved = await _db(db)
+    (message,) = saved["messages"]
     assert message.status == MessageStatus.FAILED
     assert [p["step"] for p in message.path][-1] == "answer"
-    assert [(u.role, u.ok, u.error_kind) for u in db["usage"]] == [
+    assert [(u.role, u.ok, u.error_kind) for u in saved["usage"]] == [
         ("judge.freshness", True, None), ("node.explain", False, "provider"),
     ]  # fmt: skip
-    assert db["jobs"] == []
+    assert saved["jobs"] == []
     # A failed explanation can be retried: the node has no explanation yet.
     fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
     fake_llm.script(Role.NODE_EXPLAIN, EXPLANATION)
@@ -190,13 +190,13 @@ async def test_a_client_leaving_mid_answer_aborts_it_with_usage_and_no_jobs(
             break
     await stream.aclose()  # what the SSE response does when the client disconnects
 
-    db = await _db(db)
-    (message,) = db["messages"]
+    saved = await _db(db)
+    (message,) = saved["messages"]
     assert message.status == MessageStatus.ABORTED
-    assert [(u.role, u.ok, u.error_kind) for u in db["usage"]] == [
+    assert [(u.role, u.ok, u.error_kind) for u in saved["usage"]] == [
         ("judge.freshness", True, None), ("node.explain", False, "aborted"),
     ]  # fmt: skip
-    assert db["jobs"] == []
+    assert saved["jobs"] == []
     latest = (await api.get(f"/v1/branches/{message.branch_id}/messages/latest")).json()
     assert latest["status"] == "aborted"
 
@@ -215,9 +215,9 @@ async def test_leaving_after_the_commit_point_keeps_the_answer(
             break
     await stream.aclose()
 
-    db = await _db(db)
-    assert [m.status for m in db["messages"]] == [MessageStatus.DONE]
-    assert len(db["usage"]) == 2 and len(db["jobs"]) == 2
+    saved = await _db(db)
+    assert [m.status for m in saved["messages"]] == [MessageStatus.DONE]
+    assert len(saved["usage"]) == 2 and len(saved["jobs"]) == 2
 
 
 async def test_leaving_while_the_answer_is_being_committed_keeps_it(
@@ -251,13 +251,13 @@ async def test_leaving_while_the_answer_is_being_committed_keeps_it(
     with contextlib.suppress(asyncio.CancelledError):
         await consumer
 
-    db = await _db(db)
-    assert [m.status for m in db["messages"]] == [MessageStatus.DONE]
-    assert [(u.role, u.ok) for u in db["usage"]] == [
+    saved = await _db(db)
+    assert [m.status for m in saved["messages"]] == [MessageStatus.DONE]
+    assert [(u.role, u.ok) for u in saved["usage"]] == [
         ("judge.freshness", True),
         ("node.explain", True),
     ]
-    assert len(db["jobs"]) == 2
+    assert len(saved["jobs"]) == 2
 
 
 async def test_ending_an_already_committed_answer_changes_nothing(
@@ -287,9 +287,9 @@ async def test_ending_an_already_committed_answer_changes_nothing(
     rt = runtime_for(FakeLLM())
     await record.ended(rt.sessions, message.id, MessageStatus.ABORTED, late, [])
 
-    db = await _db(db)
-    assert [m.status for m in db["messages"]] == [MessageStatus.DONE]
-    assert len(db["usage"]) == 2
+    saved = await _db(db)
+    assert [m.status for m in saved["messages"]] == [MessageStatus.DONE]
+    assert len(saved["usage"]) == 2
 
 
 async def test_latest_is_deterministic_when_timestamps_tie(

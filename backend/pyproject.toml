@@ -72,8 +72,14 @@ allowed-confusables = ["：", "（", "）", "！", "？"]
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
-packages = ["banyan"]
+# The tests too: a test that type-checks cannot silently assert on the wrong thing.
+files = ["src", "tests"]
 mypy_path = "src"
+
+[[tool.mypy.overrides]]
+# llm-steward itself is only in the `contract` group (tests/contract); the backend job lacks it.
+module = ["llm_steward", "llm_steward.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

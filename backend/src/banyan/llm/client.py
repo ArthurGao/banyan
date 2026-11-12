@@ -4,7 +4,7 @@ attempt (design §7.2). There is no fallback: a failure raises `RoleError`."""
 import asyncio
 import os
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
@@ -139,7 +139,7 @@ class RoleClient:
         max_output_tokens: int | None = None,
         max_total_tokens: int | None = None,
         timeout_s: float | None = None,
-    ) -> AsyncIterator[str | ToolCalled]:
+    ) -> AsyncGenerator[str | ToolCalled]:
         """Text deltas as they arrive and, with `tools`, a `ToolCalled` for each call, in order
         (an agent loop, design §6.2). The final answer is the text after the last `ToolCalled`.
         The usage row (one for the whole loop) is added when the stream ends, however it ends:

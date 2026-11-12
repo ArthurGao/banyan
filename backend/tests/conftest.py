@@ -67,7 +67,7 @@ API_TOKEN = "test-token-0123456789"
 def settings_for(url: str) -> Settings:
     """App settings for tests: no env file, schema `banyan_test` (which the validator refuses for
     real deployments, hence the copy)."""
-    settings = Settings(_env_file=None, database_url=url, api_token=API_TOKEN, run_worker=False)  # type: ignore[arg-type]
+    settings = Settings(_env_file=None, database_url=url, api_token=API_TOKEN, run_worker=False)
     return settings.model_copy(update={"db_schema": TEST_SCHEMA})
 
 

@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 import httpx
+from sqlalchemy import update
 
 from banyan.llm import Role
 from banyan.llm.fakes import FakeLLM
@@ -118,7 +119,7 @@ async def test_a_lost_version_race_waits_and_runs_again(
         try:
             assert await run_notes_job(c) == "pending"
         finally:
-            notes.get_notes = original  # type: ignore[assignment]
+            notes.get_notes = original
     (job,) = [j for j in await rows(db, Job) if j.kind == JobKind.NOTES_UPDATE]
     assert (job.status, job.attempts) == (JobStatus.PENDING, 0)
 
@@ -147,9 +148,7 @@ async def test_an_update_racing_another_update_does_not_overwrite_it(
     async def read_then_someone_saves(session: Any, nid: uuid.UUID) -> NodeNotes | None:
         found = await original(session, nid)
         async with db() as other:  # another update lands while this one calls the model
-            await other.execute(
-                NodeNotes.__table__.update().values(version=2, content={"summary": "theirs"})
-            )
+            await other.execute(update(NodeNotes).values(version=2, content={"summary": "theirs"}))
             await other.commit()
         return found
 
@@ -157,7 +156,7 @@ async def test_an_update_racing_another_update_does_not_overwrite_it(
     try:
         assert await run_notes_job(worker_ctx(db, migrated_url, writer)) == "pending"
     finally:
-        notes.get_notes = original  # type: ignore[assignment]
+        notes.get_notes = original
     (saved,) = await rows(db, NodeNotes)
     assert (saved.version, saved.content) == (2, {"summary": "theirs"})
 
