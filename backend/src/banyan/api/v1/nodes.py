@@ -26,7 +26,7 @@ async def get_node(node_id: uuid.UUID, s: Session) -> NodeDetail:
     node = await outline.get_node(s, node_id)
     explanation = await branches.explanation(s, node_id)
     if explanation is not None:
-        await runs.prefetch_after(s, node_id)  # the learner opened it (design §5.1, prefetch)
+        await runs.opened(s, node_id)  # the learner opened it (design §5.1, §5.5)
     return NodeDetail(
         node=NodeOut.model_validate(node),
         explanation=MessageOut.model_validate(explanation) if explanation else None,
@@ -72,7 +72,7 @@ async def create_branch(node_id: uuid.UUID, body: BranchCreate, s: Session) -> B
 async def explain_node(node_id: uuid.UUID, s: Session, rt: AnswerRuntime) -> EventSourceResponse:
     """Explains the node with `node.explain` on its main branch (design §5.2), streamed."""
     inp = await answers.start_explain(s, node_id)
-    await runs.prefetch_after(s, node_id)
+    await runs.opened(s, node_id)
     return sse.stream(answers.stream_answer(inp, rt))
 
 

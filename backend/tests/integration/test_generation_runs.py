@@ -398,3 +398,51 @@ async def test_the_topic_names_its_latest_run_so_a_reload_finds_the_progress(
     await api.patch(f"/v1/generation-runs/{run['id']}", json={"action": "cancel"})
     again = (await api.post(f"/v1/topics/{topic_id}/generation-runs", json={})).json()
     assert (await api.get(f"/v1/topics/{topic_id}")).json()["latest_run_id"] == again["id"]
+
+
+async def test_explanations_made_in_the_background_do_not_start_their_nodes(
+    api: httpx.AsyncClient, db: Sessions, migrated_url: str, fake_llm: FakeLLM
+) -> None:
+    # Design §5.5: a node is "learning" once the learner opened its explanation, not when a
+    # prefetch or a run wrote one for later.
+    fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
+    fake_llm.script(Role.NODE_EXPLAIN, EXPLANATION)
+    topic_id, nodes = await outline(api, 3, "prefetch")
+    await api.post(f"/v1/nodes/{nodes[0]}/explain")  # opened: prefetches node 1
+
+    async def node_1_explained() -> bool:
+        return uuid.UUID(nodes[1]) in await explanations(db)
+
+    await drain(run_ctx(db, migrated_url, explain_only()), node_1_explained)
+    statuses = {
+        n["id"]: n["status"] for n in (await api.get(f"/v1/topics/{topic_id}")).json()["nodes"]
+    }
+    assert [statuses[n] for n in nodes] == ["learning", "not_started", "not_started"]
+    await api.get(f"/v1/nodes/{nodes[1]}")  # now the learner opens it
+    statuses = {
+        n["id"]: n["status"] for n in (await api.get(f"/v1/topics/{topic_id}")).json()["nodes"]
+    }
+    assert statuses[nodes[1]] == "learning"
+
+
+async def test_reopening_a_node_does_not_walk_the_prefetch_forward(
+    api: httpx.AsyncClient, db: Sessions, migrated_url: str, fake_llm: FakeLLM
+) -> None:
+    # Prefetch explains the node right after the opened one, once: opening node 0 again after
+    # node 1 is explained (a refresh, a focus refetch) must not explain node 2 — cost follows the
+    # learner's progress (design §5.1).
+    fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
+    fake_llm.script(Role.NODE_EXPLAIN, EXPLANATION)
+    _, nodes = await outline(api, 3, "prefetch")
+    await api.post(f"/v1/nodes/{nodes[0]}/explain")
+
+    async def node_1_explained() -> bool:
+        return uuid.UUID(nodes[1]) in await explanations(db)
+
+    await drain(run_ctx(db, migrated_url, explain_only()), node_1_explained)
+    assert set(await explanations(db)) == {uuid.UUID(nodes[0]), uuid.UUID(nodes[1])}
+    for _ in range(3):
+        await api.get(f"/v1/nodes/{nodes[0]}")
+    pending = [j.payload["node_id"] for j in await rows(db, Job)
+               if j.kind == JobKind.NODE_EXPLAIN and j.status == JobStatus.PENDING]  # fmt: skip
+    assert pending == []

@@ -21,6 +21,9 @@ async function noHorizontalScroll(page: Page) {
   )
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(overflow, wide.join('\n')).toBeLessThanOrEqual(0)
+  // Nor up and down: panes scroll on their own, so the composer sticks to the bottom of its pane.
+  const tall = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight)
+  expect(tall, 'the page itself scrolls vertically').toBeLessThanOrEqual(0)
 }
 
 async function createTopic(page: Page, title: string) {

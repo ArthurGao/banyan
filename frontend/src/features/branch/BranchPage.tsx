@@ -151,7 +151,7 @@ function BranchView({ branchId, nodeId }: { branchId: string; nodeId: string }) 
       {!live && latest.data?.status === 'streaming' && <StatusLine state={{ ...initialStream, phase: 'streaming', step: 'answer' }} label={t('branch.writing')} />}
 
       <AskComposer
-        className="sticky bottom-0 border-t bg-background pt-3 pb-2"
+        className="sticky -bottom-4 border-t bg-background pt-3 pb-4 md:-bottom-6 md:pb-6"
         label={t('branch.composer')}
         placeholder={t('branch.composer')}
         submitLabel={t('branch.send')}

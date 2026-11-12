@@ -181,6 +181,7 @@ async def answer(
         template, **_context_vars(inp), sources=material, missing=verdict.missing,
         sources_rule=wrapper.rule if material or tools else "",
         kb_tool=deps.steward is not None, web=web, search_first=web and fresh.needs_web,
+        feedback=inp.feedback, feedback_note=inp.feedback_note,
     )  # fmt: skip
     content = await _stream(
         role, prompt.instructions, prompt.prompt, inp, deps, tools=tools,

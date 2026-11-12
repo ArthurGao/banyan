@@ -44,5 +44,8 @@ Reference material:
 The knowledge base covers part of this already; it is missing: {{ missing | join("; ") }}.
 
 {% endif %}
-Question: {{ question }}
+{% if feedback %}
+The learner marked an earlier answer to this as {{ feedback }}{% if feedback_note %}, with this note: {{ feedback_note }}{% endif %}. Write a new answer that fixes this.
+
+{% endif %}Question: {{ question }}
 {% endblock %}

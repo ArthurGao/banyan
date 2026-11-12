@@ -19,7 +19,7 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
 
-TEMPLATE_VERSION = "1"
+TEMPLATE_VERSION = "2"
 HERE = Path(__file__).parent
 KATEX = HERE / "assets" / "katex"
 
@@ -69,13 +69,28 @@ def render_study_guide(
     return template.render(
         topic_title=topic_title,
         goal=goal,
-        nodes=[(f"n{i}", n) for i, n in enumerate(nodes)],
+        nodes=[
+            (f"n{i}", n, number)
+            for i, (n, number) in enumerate(zip(nodes, _numbers(nodes), strict=True))
+        ],
         sources=[(k, round(100 * v / total)) for k, v in sorted(sources.items()) if v],
         generated_at=generated_at.isoformat(timespec="seconds"),
         template_version=TEMPLATE_VERSION,
         katex_version=_katex_version(),
         assets=_assets(),
     )
+
+
+def _numbers(nodes: list[ExportNode]) -> list[str]:
+    """1 / 1.1 / 1.2.3 from the nodes' depths in reading order, as the app numbers its outline."""
+    counters: list[int] = []
+    out: list[str] = []
+    for node in nodes:
+        del counters[node.depth + 1 :]
+        counters.extend([0] * (node.depth + 1 - len(counters)))
+        counters[node.depth] += 1
+        out.append(".".join(str(c) for c in counters))
+    return out
 
 
 def markdown(text: str) -> str:

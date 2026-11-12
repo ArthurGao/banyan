@@ -25,6 +25,7 @@ from banyan.llm import RoleClient, RoleError
 from banyan.models import (
     Branch,
     BranchKind,
+    Feedback,
     Message,
     MessageRole,
     MessageStatus,
@@ -154,7 +155,12 @@ async def start_reanswer(s: AsyncSession, message_id: uuid.UUID, rt: Runtime) ->
         # What came before that question, with the branch's summary (design §5.3).
         past = await branches.history(s, branch, rt.history_budget, until=asked.id)
         inp = await _ask_input(s, node, branch.id, asked.content_md, past, compress=False)
-    return inp.model_copy(update={"force_llm": True, "supersedes": old.id})
+    # The verdict and note were recorded in this transaction (api/v1/messages.py).
+    verdict = old.feedback.value if old.feedback in (Feedback.WRONG, Feedback.INCOMPLETE) else None
+    return inp.model_copy(
+        update={"force_llm": True, "supersedes": old.id, "feedback": verdict,
+                "feedback_note": old.feedback_note}
+    )  # fmt: skip
 
 
 async def _explain_input(s: AsyncSession, node: Node, branch_id: uuid.UUID) -> AskInput:

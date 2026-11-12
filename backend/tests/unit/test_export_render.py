@@ -124,3 +124,16 @@ def test_nothing_in_a_note_can_run() -> None:
         "branch_highlights": []}, 1)])  # fmt: skip
     assert "<script>x()</script>" not in html and "<script>alert" not in html
     assert html.count("<script>") == 2  # KaTeX and the math loop, nothing else
+
+
+def test_the_contents_number_nodes_like_the_app() -> None:
+    # 1 / 1.1 / 2, as the outline in the app shows them — not one running count over all levels.
+    outline = [("Pods", 0), ("Pod IPs", 1), ("Pod DNS", 1), ("Services", 0), ("ClusterIP", 1),
+               ("kube-proxy", 2)]  # fmt: skip
+    nodes = [ExportNode(title, depth, None, None, 0) for title, depth in outline]
+    toc = guide(nodes=nodes).split('<nav class="toc"')[1].split("</nav>")[0]
+    assert re.findall(r'<span class="num">([\d.]+)</span>\s*<a href="#n\d+">([^<]+)</a>', toc) == [
+        ("1", "Pods"), ("1.1", "Pod IPs"), ("1.2", "Pod DNS"), ("2", "Services"),
+        ("2.1", "ClusterIP"), ("2.1.1", "kube-proxy"),
+    ]  # fmt: skip
+    assert "<ol>" not in toc  # no second, automatic numbering beside it

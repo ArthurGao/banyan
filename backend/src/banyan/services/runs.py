@@ -29,6 +29,7 @@ from banyan.models import (
     JobStatus,
     Message,
     MessageStatus,
+    NodeStatus,
     OutlineStatus,
     RunStatus,
     UsageLog,
@@ -75,23 +76,25 @@ async def enqueue_explain(
         )
 
 
-async def prefetch_after(s: AsyncSession, node_id: uuid.UUID) -> None:
-    """`prefetch` (design §5.1): the learner opened this node's explanation, so the next node in
-    outline order without one is explained in the background. Commits."""
+async def opened(s: AsyncSession, node_id: uuid.UUID) -> None:
+    """The learner opened this node's explanation (asked for it, or opened a node that has one).
+    The node starts (design §5.5: not when a prefetch or a run wrote its explanation), and with
+    `prefetch` (design §5.1) the node right after it in outline order is explained in the
+    background if it has no explanation yet. Only that one node: opening the same node again
+    must not walk the prefetch further, so cost follows the learner's progress. Commits."""
     node = await outline.get_node(s, node_id)
+    if node.status == NodeStatus.NOT_STARTED:
+        node.status = NodeStatus.LEARNING
     topic = await topics.get_topic(s, node.topic_id)
     if (
-        topic.explain_mode != ExplainMode.PREFETCH
-        or topic.outline_status != OutlineStatus.CONFIRMED
+        topic.explain_mode == ExplainMode.PREFETCH
+        and topic.outline_status == OutlineStatus.CONFIRMED
     ):
-        return
-    ordered = await outline.ordered_nodes(s, topic.id)
-    explained = await branches.explained_nodes(s, [n.id for n in ordered])
-    after = ordered[[n.id for n in ordered].index(node_id) + 1 :]
-    upcoming = next((n for n in after if n.id not in explained), None)
-    if upcoming is not None:
-        await enqueue_explain(s, upcoming.id)
-        await s.commit()
+        ordered = [n.id for n in await outline.ordered_nodes(s, topic.id)]
+        upcoming = ordered[ordered.index(node_id) + 1 : ordered.index(node_id) + 2]
+        if upcoming and not await branches.explained_nodes(s, upcoming):
+            await enqueue_explain(s, upcoming[0])
+    await s.commit()
 
 
 async def node_states(

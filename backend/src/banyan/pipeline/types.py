@@ -51,6 +51,9 @@ class AskInput(BaseModel):
     allow_web: bool = True  # false: no web tools; a time-sensitive answer warns (row 4b)
     generation_run_id: uuid.UUID | None = None  # set by a "generate all" run (design §5.1.1)
     supersedes: uuid.UUID | None = None  # a re-answer after "wrong"/"incomplete" (design §6.3)
+    # A re-answer: the learner's verdict on the earlier answer and their note (design §6.3).
+    feedback: Literal["wrong", "incomplete"] | None = None
+    feedback_note: str | None = None
     # Context, loaded by the caller
     topic_title: str
     goal: str | None

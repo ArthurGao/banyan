@@ -1,7 +1,7 @@
 // The memory page (design §8.5): what steward learned about the learner (pin, delete) and the KB
 // cards waiting for a decision. These calls go to steward synchronously; 503 means it is down.
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Pin, PinOff, Trash2 } from 'lucide-react'
+import { Pin, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -92,7 +92,7 @@ function MemoryRow({ memory }: { memory: MemoryOut }) {
         }}
         className={cn(memory.pinned && 'text-foreground')}
       >
-        {memory.pinned ? <Pin aria-hidden className="fill-current" /> : <PinOff aria-hidden />}
+        <Pin aria-hidden className={cn(memory.pinned && 'fill-current')} />
       </Button>
       <Button
         variant="ghost"

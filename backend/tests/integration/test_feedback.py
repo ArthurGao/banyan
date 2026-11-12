@@ -260,3 +260,38 @@ async def test_a_refused_reanswer_does_not_record_the_feedback(
     stored = next(m for m in await rows(db, Message) if str(m.id) == old)
     assert stored.feedback == "none"
     assert kinds(await rows(db, Job)) == []
+
+
+async def test_the_reanswer_is_told_the_verdict_and_the_note(
+    api: httpx.AsyncClient, fake_llm: FakeLLM
+) -> None:
+    # Owner decision 2026-11-13: the learner's note goes to the model that answers again (§6.3).
+    _, _, old = await asked(api, fake_llm)
+    first = fake_llm.calls_of(Role.ANSWER_COMPOSE)[-1].prompt
+    assert "marked an earlier answer" not in first
+    fake_llm.script(Role.ANSWER_COMPOSE, "ClusterIP is the default; NodePort builds on it.")
+    note = "It did not say how NodePort relates to it."
+    response = await api.post(
+        f"/v1/messages/{old}/feedback", json={"feedback": "incomplete", "note": note}
+    )
+    assert sse_events(response.text)[-1][0] == "done"
+    rerun = fake_llm.calls_of(Role.ANSWER_COMPOSE)[-1].prompt
+    assert "marked an earlier answer to this as incomplete" in rerun
+    assert note in rerun
+    assert "ClusterIP is the default." not in rerun  # the old answer itself stays out
+
+
+async def test_a_wrong_explanation_reanswer_is_told_the_note(
+    api: httpx.AsyncClient, fake_llm: FakeLLM
+) -> None:
+    fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
+    fake_llm.script(Role.NODE_EXPLAIN, "Old explanation.", "New explanation.")
+    topic = await create_topic(api)
+    node = await create_node(api, topic["id"], "Services")
+    await api.post(f"/v1/nodes/{node['id']}/explain")
+    old = (await api.get(f"/v1/nodes/{node['id']}")).json()["explanation"]["id"]
+    await api.post(
+        f"/v1/messages/{old}/feedback", json={"feedback": "wrong", "note": "Ports are mixed up."}
+    )
+    rerun = fake_llm.calls_of(Role.NODE_EXPLAIN)[-1].prompt
+    assert "marked an earlier answer to this as wrong, with this note: Ports are mixed up." in rerun

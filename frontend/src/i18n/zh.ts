@@ -121,7 +121,7 @@ export const zh = {
     path: '路径',
     tokens: '{{input}} 入 / {{output}} 出 token',
     feedback: { good: '有用', wrong: '不对', incomplete: '不完整' },
-    feedbackNote: '哪里不对？（可选，会一起交给重答）',
+    feedbackNote: '哪里不对？（可选，会交给重答的模型）',
     reanswer: '提交并重答',
     feedbackSaved: '已记下反馈',
     given: '已标记：{{feedback}}',

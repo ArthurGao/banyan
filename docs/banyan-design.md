@@ -234,7 +234,7 @@ exports
 
 | 方式 | 行为 | 适合 |
 |---|---|---|
-| `prefetch` 预读下一节（**默认**） | 用户打开第 N 个节点的讲解时，后台生成大纲顺序中的下一个尚无讲解的节点 | 大多数情况：体验接近全部生成，成本跟着学习进度走 |
+| `prefetch` 预读下一节（**默认**） | 用户打开第 N 个节点的讲解时，若大纲顺序中紧随其后的第 N+1 个节点还没有讲解，后台生成它；只看这一个节点，重复打开第 N 节不会继续往后预读（2026-11-13 实测：原先每次刷新都往后多生成一节）。后台生成的讲解不改节点状态，用户打开时才算“学习中”（§5.5） | 大多数情况：体验接近全部生成，成本跟着学习进度走 |
 | `all` 全部生成 | 创建一个 `generation_run`，后台为全部节点生成讲解（§5.1.1） | 想先拿到一份完整资料 |
 | `manual` 只要大纲 | 只在用户打开节点时生成讲解（§5.2） | 只想按需学习、最省 |
 
@@ -327,7 +327,7 @@ AskRequest:
 
 ### 6.3 反馈
 
-- `wrong` / `incomplete` → 入队 `kb_feedback`：对原消息 `steward_retrieval_ids` 中每次检索的每个被引用 item 提交 `helpful=false`（steward 反馈按 `retrieval_id + item_id`，没有按条目的反馈）。`wrong` 时若原消息已有 `proposed_entry_ids`（本答案产生的条目），另入队 `kb_deprecate` 对其调用 steward deprecate；若还没有（`kb_propose` 尚未完成），不入队：`kb_propose` 开始前看到 `wrong`（或已被重答）就不起草也不写入，写入后若发现期间被标为 `wrong`，当场 deprecate 刚写的条目。反馈与重答占位消息在同一事务提交，重答被拒（409）时反馈也不记录。然后以 `force_llm=true` 自动重答，新消息写入同一支线，旧消息 `superseded_by` 指向新消息（在新答案的提交事务里写，新答案失败则旧的不变）。
+- `wrong` / `incomplete` → 入队 `kb_feedback`：对原消息 `steward_retrieval_ids` 中每次检索的每个被引用 item 提交 `helpful=false`（steward 反馈按 `retrieval_id + item_id`，没有按条目的反馈）。`wrong` 时若原消息已有 `proposed_entry_ids`（本答案产生的条目），另入队 `kb_deprecate` 对其调用 steward deprecate；若还没有（`kb_propose` 尚未完成），不入队：`kb_propose` 开始前看到 `wrong`（或已被重答）就不起草也不写入，写入后若发现期间被标为 `wrong`，当场 deprecate 刚写的条目。反馈与重答占位消息在同一事务提交，重答被拒（409）时反馈也不记录。然后以 `force_llm=true` 自动重答（重答的 prompt 带上学习者的判断与备注，“之前的回答被标为 incomplete，备注：…”，不带旧答案本身；owner 2026-11-13），新消息写入同一支线，旧消息 `superseded_by` 指向新消息（在新答案的提交事务里写，新答案失败则旧的不变）。
   讲解被重答时，节点的讲解改为没被取代的那一条。同一答案已被重答过再重答返回 409。同一结论重复提交（同一答案、同一 feedback）只入队一次。
 - `good` → 对被引用 item 提交 `helpful=true`，并触发 `notes_update`。笔记材料因此包括有 good 答案的支线（即使还没关闭），按支线水位只取新轮次。
 - 只标记不重答：`POST /messages/{id}/feedback` 带 `reanswer=false`（§9）。
@@ -689,7 +689,7 @@ error     {code, message}
       → `feedback(retrieval_id, item_id)` → `deprecate` 成功（key 带 review scope）→ 同 `Idempotency-Key` 重放返回同一 id。
       → 应用 `deploy/steward/banyan.yaml` 后检查 rerank 的 `score` 范围与 `high_risk_keywords` 的叠加方式。
       spike 先在 SDK 嵌入模式跑通，再对本机 steward 跑一遍；结论（字段名、延迟、定级行为）写进 §8 与 KB，再开始 B1
-- [ ] CI：两端检查与测试（`.github/workflows/ci.yml` 已写：backend、contract、frontend 三个 job；要 push 后看结果才算通过）
+- [x] CI：两端检查与测试（`.github/workflows/ci.yml`：backend、contract、frontend 三个 job，frontend 含 e2e 与生成类型漂移检查）；2026-11-13 `f593459` 首次三个 job 全绿（run 43281229981）
 - 验收：`banyan serve` + `/health` 绿；前端空壳在三个视口渲染；contract spike 全绿；CI 通过
 - **收尾记录（2026-11-12）**：
   - 验收：`banyan serve` 后 `/health` 为 `ok`（db ok、steward / search not_configured）；后端 49 个测试与嵌入模式 contract spike 全绿，
@@ -895,6 +895,15 @@ error     {code, message}
   - Codex：两条成立并修复（先写失败的测试）——丢流后支线只刷新一次，服务端仍在写的回答提交后看不到（改为跟踪 `messages/latest`，`streaming` 时轮询、落定后刷新，
     也覆盖了别处正在写的回答）；快速提问丢流后无路可走（有了落点就给“打开支线”，由支线页取回）。修复只在前端、不涉及 §4 / §6 / §8，没有再跑 Codex。
   - 未复现的一次：e2e 中并发取 9 个节点时出现过一次 500（之后 7 轮全绿，手工并发也没复现）；测试现在会报出失败的请求与响应体，再出现时据此查后端。
+  - **真实服务联调（2026-11-13，owner 要求）**：llm-gateway claude-sub（全部 10 个 role）+ steward（lite-rag + lite-mem，Ollama）+ 开发库，浏览器走完
+    建主题 → 真实大纲（约 10 s）→ 确认 → 讲解（伪流式，约 15 s，代码高亮、表格、引用块正常）→ 支线提问（命中 KB，带 [S1][S2] 与“知识库”徽章）→
+    “不完整”重答 → 关闭支线（episode 提交，steward 抽出 1 条记忆，记忆页可见、置顶生效）→ 快速提问（真实归类到合理节点、作答、打开支线）→ 导出 → 用量。
+    修了五处，都先写了失败的测试或在真实页面上量过：
+    (1) 预读一路往后走（每次重新取节点——刷新、反馈后、窗口获焦——都会再预读“下一个还没讲解的节点”），改为只看紧随其后的一个节点（§5.1 表格已改）；
+    (2) 后台生成的讲解把节点标成“学习中”，改为用户打开时才标（`runs.opened`，§5.5）；
+    (3) 整页与各栏双滚动、底部追问框不贴底：网格行限制为视口高、各栏 `relative min-h-0`（`sr-only` 等绝对定位元素原先逃出栏的裁剪、撑高整页），追问框用负 `bottom` 抵消栏内边距；e2e 加了“整页不纵向滚动”的断言；
+    (4) 导出目录是一串连续序号，改为与应用一致的 1 / 1.1 / 1.2.3（模板版本 2）；
+    (5) 反馈备注原先只随反馈记录、重答看不到；owner 决定交给重答（§6.3），重答的 prompt 带上判断与备注（先写失败的测试）。
 
 ### 之后（v2 候选）
 

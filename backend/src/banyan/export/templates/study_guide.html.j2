@@ -23,7 +23,8 @@ h1 { font-size: 1.8rem; margin: 0 0 .25rem; }
 .goal { color: var(--muted); margin: 0 0 1.5rem; }
 nav.toc { background: var(--panel); border: 1px solid var(--border); border-radius: .5rem;
   padding: .75rem 1rem; margin-bottom: 2rem; }
-nav.toc ol { margin: .25rem 0; padding-left: 1.25rem; }
+nav.toc ul { margin: .25rem 0; padding-left: 0; list-style: none; }
+nav.toc .num { display: inline-block; min-width: 3rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 nav.toc a { color: var(--accent); text-decoration: none; }
 section.node { border-top: 1px solid var(--border); padding-top: 1rem; margin-top: 1.5rem; }
 section.depth-1, section.depth-2 { margin-left: 1rem; }
@@ -51,13 +52,13 @@ footer { margin-top: 3rem; color: var(--muted); font-size: .85rem; border-top: 1
 {% if goal %}<p class="goal">{{ goal }}</p>{% endif %}
 <nav class="toc" aria-label="Contents">
 <strong>Contents</strong>
-<ol>
-{% for anchor, node in nodes %}
-<li class="toc-depth-{{ node.depth }}" style="margin-left: {{ node.depth }}rem"><a href="#{{ anchor }}">{{ node.title }}</a></li>
+<ul>
+{% for anchor, node, number in nodes %}
+<li class="toc-depth-{{ node.depth }}" style="margin-left: {{ node.depth }}rem"><span class="num">{{ number }}</span> <a href="#{{ anchor }}">{{ node.title }}</a></li>
 {% endfor %}
-</ol>
+</ul>
 </nav>
-{% for anchor, node in nodes %}
+{% for anchor, node, number in nodes %}
 <section class="node depth-{{ node.depth }}" id="{{ anchor }}">
 {% if node.depth == 0 %}<h2>{{ node.title }}</h2>{% elif node.depth == 1 %}<h3>{{ node.title }}</h3>{% else %}<h4>{{ node.title }}</h4>{% endif %}
 {% if node.summary %}<p class="summary">{{ node.summary }}</p>{% endif %}
@@ -84,7 +85,7 @@ footer { margin-top: 3rem; color: var(--muted); font-size: .85rem; border-top: 1
 {% endfor %}
 <footer>
 <p>Generated {{ generated_at }} · template {{ template_version }} · KaTeX {{ katex_version }}</p>
-<p>Notes versions: {% for anchor, node in nodes %}{{ node.title }} v{{ node.version }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+<p>Notes versions: {% for anchor, node, number in nodes %}{{ node.title }} v{{ node.version }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
 {% if sources %}<p>Answers by source: {% for name, share in sources %}{{ name }} {{ share }}%{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 </footer>
 </main>

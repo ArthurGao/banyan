@@ -122,7 +122,7 @@ export const en: Messages = {
     path: 'Path',
     tokens: '{{input}} in / {{output}} out tokens',
     feedback: { good: 'Helpful', wrong: 'Wrong', incomplete: 'Incomplete' },
-    feedbackNote: 'What is wrong? (optional, passed to the re-answer)',
+    feedbackNote: 'What is wrong? (optional, given to the re-answer)',
     reanswer: 'Send and re-answer',
     feedbackSaved: 'Feedback saved',
     given: 'Marked: {{feedback}}',

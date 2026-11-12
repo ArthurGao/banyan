@@ -7,7 +7,8 @@ import { useLayout } from '@/lib/layout'
 
 // One shell for every size (frontend/AGENTS.md rule 2): three panes from 1200px, two from 768px
 // (outline in a left drawer), one below (outline and notes in bottom sheets). Panes are separated by
-// 1px hairlines, no shadows.
+// 1px hairlines, no shadows. Each pane scrolls on its own; the page never does (the rows are
+// capped at the viewport, so a sticky composer sticks to the bottom of its pane).
 interface Props {
   outline: ReactNode
   main: ReactNode
@@ -28,7 +29,7 @@ export function ResponsiveSplit({ outline, main, notes, closeKey }: Props) {
 
   if (layout === 'three') {
     return (
-      <div data-layout="three" className="grid h-full grid-cols-[18rem_minmax(0,1fr)_20rem]">
+      <div data-layout="three" className="grid h-full grid-cols-[18rem_minmax(0,1fr)_20rem] grid-rows-[minmax(0,1fr)]">
         <Pane name="outline">{outline}</Pane>
         <Pane name="main">{main}</Pane>
         <Pane name="notes">{notes}</Pane>
@@ -37,7 +38,7 @@ export function ResponsiveSplit({ outline, main, notes, closeKey }: Props) {
   }
 
   return (
-    <div data-layout={layout} className={layout === 'two' ? 'grid h-full grid-cols-[minmax(0,1fr)_18rem]' : 'h-full'}>
+    <div data-layout={layout} className={layout === 'two' ? 'grid h-full grid-cols-[minmax(0,1fr)_18rem] grid-rows-[minmax(0,1fr)]' : 'h-full'}>
       <Pane name="main">
         <div className="mb-3 flex gap-2">
           <Button variant="outline" size="sm" onClick={() => { setOpen('outline'); }} aria-expanded={open === 'outline'}>
@@ -74,7 +75,7 @@ export function ResponsiveSplit({ outline, main, notes, closeKey }: Props) {
 
 function Pane({ name, children }: { name: string; children: ReactNode }) {
   return (
-    <section data-pane={name} aria-label={name} className="min-w-0 overflow-auto border-border p-4 not-last:border-r md:p-6">
+    <section data-pane={name} aria-label={name} className="relative h-full min-h-0 min-w-0 overflow-auto border-border p-4 not-last:border-r md:p-6">
       {children}
     </section>
   )

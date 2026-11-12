@@ -18,8 +18,6 @@ from banyan.models import (
     JobKind,
     Message,
     MessageStatus,
-    Node,
-    NodeStatus,
     UsageLog,
     enqueue,
 )
@@ -60,13 +58,6 @@ async def done(
                 update(Message)
                 .where(Message.id == inp.supersedes)
                 .values(superseded_by=inp.message_id)
-            )
-        if inp.mode == "explain":
-            # Opening an explanation starts the node (design §5.5).
-            await s.execute(
-                update(Node)
-                .where(Node.id == inp.node_id, Node.status == NodeStatus.NOT_STARTED)
-                .values(status=NodeStatus.LEARNING)
             )
         await s.commit()
         return True
