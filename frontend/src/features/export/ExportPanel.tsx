@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query'
 import { Download, Share2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useLocation } from 'react-router'
 import { api } from '@/api/endpoints'
 import { Button } from '@/components/ui/button'
 
@@ -12,6 +13,12 @@ export function ExportPanel({ topicId, title }: { topicId: string; title: string
   const [doc, setDoc] = useState<{ html: string; url: string } | null>(null)
   // The object URL behind "download" is released when it is replaced or the panel goes away.
   const urlRef = useRef<string | null>(null)
+  // The notes pane's "export HTML" link lands here.
+  const sectionRef = useRef<HTMLElement>(null)
+  const { hash } = useLocation()
+  useEffect(() => {
+    if (hash === '#export') sectionRef.current?.scrollIntoView({ block: 'start' })
+  }, [hash])
   useEffect(
     () => () => {
       if (urlRef.current) URL.revokeObjectURL(urlRef.current)
@@ -37,8 +44,8 @@ export function ExportPanel({ topicId, title }: { topicId: string; title: string
   const canShare = file !== null && typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })
 
   return (
-    <section aria-label={t('export.title')} className="mt-8">
-      <h2 className="mb-3 font-serif text-lg font-semibold">{t('export.title')}</h2>
+    <section ref={sectionRef} id="export" aria-label={t('export.title')} className="mt-8 scroll-mt-4">
+      <h2 className="mb-3 font-serif text-lg font-medium">{t('export.title')}</h2>
       <div className="flex flex-wrap gap-2">
         <Button
           variant="outline"

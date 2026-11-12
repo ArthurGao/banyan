@@ -43,7 +43,7 @@ src/
    citations; feedback buttons ("wrong", "incomplete") are reachable with a thumb on a phone.
 4. **Streaming:** answers render progressively from SSE `token` events; `path` events update the status
    line ("checking knowledge base…", "searching the web…"). Aborting a stream cancels the request.
-5. **Theme:** CSS variables on `:root` with dark values under `prefers-color-scheme: dark`; a manual toggle
+5. **Theme:** CSS variables on `:root` (comp A values, design §11), light by default; dark values under `prefers-color-scheme: dark` apply only when the user picks "system"; a manual toggle
    overrides via `data-theme`.
 6. **Accessibility:** keyboard navigation for the outline tree, visible focus, touch targets ≥44px.
 7. **No PWA in v1** (owner decision 2026-11-13): the phone uses the browser over Tailscale; nothing is cached offline.

@@ -19,7 +19,7 @@ type Step = (typeof STEPS)[number]
 function Bubble({ who, children }: { who: 'app' | 'you'; children: React.ReactNode }) {
   return (
     <div className={who === 'you' ? 'flex justify-end' : 'flex'}>
-      <p className={who === 'you' ? 'max-w-[85%] rounded-lg bg-secondary px-3 py-2 text-sm' : 'max-w-[85%] text-sm font-medium'}>{children}</p>
+      <p className={who === 'you' ? 'bubble-you max-w-[85%] text-sm' : 'max-w-[85%] text-sm font-medium'}>{children}</p>
     </div>
   )
 }

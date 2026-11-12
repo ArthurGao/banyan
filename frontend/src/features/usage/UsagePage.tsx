@@ -14,7 +14,7 @@ export function UsagePage() {
   const fmt = useFormatNumber()
   return (
     <div className="mx-auto max-w-3xl p-4 md:p-8">
-      <h1 className="mb-2 font-serif text-2xl font-semibold">{t('usage.title')}</h1>
+      <h1 className="mb-2 font-serif text-2xl font-medium">{t('usage.title')}</h1>
       <p className="mb-6 text-sm text-muted-foreground">{t('usage.intro')}</p>
       {usage.isPending && <QueryLoading />}
       {usage.error && <QueryError error={usage.error} onRetry={() => void usage.refetch()} />}
@@ -25,7 +25,7 @@ export function UsagePage() {
           const max = roles[0]?.[1] ?? 0
           return (
             <li key={u.topic_id} data-usage={u.topic_id} className="border-t pt-4">
-              <Link to={`/topics/${u.topic_id}`} className="font-serif text-lg font-semibold">
+              <Link to={`/topics/${u.topic_id}`} className="font-serif text-lg font-medium">
                 {u.title}
               </Link>
               <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-4">

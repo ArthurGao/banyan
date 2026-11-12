@@ -7,7 +7,7 @@ const TOKEN = 'e2e-token-not-a-secret-0123'
 test.beforeEach(async ({ page }) => {
   await page.addInitScript((token) => {
     localStorage.setItem('banyan.token', token)
-    localStorage.setItem('banyan.lang', 'en')
+    localStorage.setItem('banyan.language', 'en')
   }, TOKEN)
 })
 

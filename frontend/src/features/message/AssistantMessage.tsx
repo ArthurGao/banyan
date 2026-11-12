@@ -1,8 +1,8 @@
 // An assistant message with its provenance (AGENTS.md rule 5, frontend rule 3): source badge,
-// citations, model and path; feedback buttons sit at the bottom where a thumb reaches them.
+// citations, model and path (comp A: source row above, citations and feedback in one card below).
 import { useMutation } from '@tanstack/react-query'
 import { ExternalLink, ThumbsDown, ThumbsUp, CircleDashed } from 'lucide-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { MessageOut, PathEntry, Source } from '@/api/generated'
@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { toastError } from '@/lib/errors'
+import { answeredBy } from '@/lib/provenance'
 import { cn } from '@/lib/utils'
 
 export type Reanswer = (feedback: 'wrong' | 'incomplete', note: string | null) => void
@@ -27,8 +28,8 @@ export function Citations({ items }: { items: Citation[] }) {
   const { t } = useTranslation()
   if (items.length === 0) return null
   return (
-    <div className="mt-3 border-t pt-2 text-sm">
-      <p className="mb-1 text-xs font-medium text-muted-foreground">{t('message.citations')}</p>
+    <div className="min-w-0 flex-1">
+      <p className="eyebrow mb-1.5">{t('message.citations')}</p>
       <ol className="space-y-1">
         {items.map((c, i) => (
           <li key={`${c.entry_id ?? c.url ?? ''}-${i}`} className="flex items-start gap-2">
@@ -42,7 +43,7 @@ export function Citations({ items }: { items: Citation[] }) {
                 <ExternalLink className="size-3 shrink-0" aria-hidden />
               </a>
             ) : (
-              <span className="text-kb">{c.title ?? t('message.kbEntry', { id: (c.entry_id ?? '').slice(0, 8) })}</span>
+              <span>{c.title ?? t('message.kbEntry', { id: (c.entry_id ?? '').slice(0, 8) })}</span>
             )}
           </li>
         ))}
@@ -51,28 +52,50 @@ export function Citations({ items }: { items: Citation[] }) {
   )
 }
 
-export function Meta({
+/** Above the answer (comp A): where it came from, how many citations, what it cost, which model. */
+export function SourceRow({
   source,
   provenance,
-  path,
+  citations,
   usage,
-  warnings,
 }: {
   source: Source | null
   provenance?: string | null
-  path: PathEntry[]
+  citations: number
   usage?: { input: number; output: number } | null
-  warnings?: string[]
 }) {
   const { t } = useTranslation()
+  const facts = [citations > 0 && t('message.citationCount', { count: citations }), usage && t('message.tokens', { input: usage.input, output: usage.output })].filter(Boolean)
+  if (!source && !provenance && facts.length === 0) return null
   return (
-    <div className="mt-3 space-y-1">
-      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        {source && <SourceBadge source={source} />}
-        {provenance && <span className="min-w-0 font-mono break-all">{provenance}</span>}
-        {usage && <span>{t('message.tokens', { input: usage.input, output: usage.output })}</span>}
+    <div className="mb-4 flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+      {source && <SourceBadge source={source} />}
+      {facts.length > 0 && <span className="text-[13px] text-muted-foreground">{facts.join(' · ')}</span>}
+      {provenance && (
+        <span className="ml-auto min-w-0 truncate font-mono text-xs text-muted-foreground" title={provenance}>
+          {answeredBy(provenance)}
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** Below the answer: citations and the pipeline path on the left, feedback on the right (comp A).
+ * On a phone the feedback wraps under the citations, where a thumb reaches it (frontend rule 3). */
+export function ProvenanceCard({ citations, path, warnings, children }: { citations: Citation[]; path: PathEntry[]; warnings?: string[]; children?: ReactNode }) {
+  const { t } = useTranslation()
+  if (citations.length === 0 && path.length === 0 && !warnings?.length && !children) return null
+  return (
+    <div className="mt-5 flex flex-col gap-3 rounded-lg border bg-panel px-4 py-3.5 text-[13px] md:flex-row md:gap-4">
+      <div className="min-w-0 flex-1 space-y-2">
+        <Citations items={citations} />
+        {warnings?.map((w) => (
+          <p key={w} className="text-warn">
+            {t(`message.warnings.${w}`, { defaultValue: w })}
+          </p>
+        ))}
         {path.length > 0 && (
-          <details className="w-full">
+          <details className="text-xs text-muted-foreground">
             <summary className="cursor-pointer select-none">{t('message.path')}</summary>
             <ol className="mt-1 font-mono">
               {path.map((p, i) => (
@@ -84,11 +107,7 @@ export function Meta({
           </details>
         )}
       </div>
-      {warnings?.map((w) => (
-        <p key={w} className="text-xs text-warn">
-          {t(`message.warnings.${w}`, { defaultValue: w })}
-        </p>
-      ))}
+      {children}
     </div>
   )
 }
@@ -106,10 +125,10 @@ function FeedbackBar({ message, onReanswer, onChanged }: { message: MessageOut; 
     onError: toastError,
   })
   if (message.feedback !== 'none') {
-    return <p className="mt-2 text-xs text-muted-foreground">{t('message.given', { feedback: t(`message.feedback.${message.feedback}`) })}</p>
+    return <p className="self-start text-xs text-muted-foreground">{t('message.given', { feedback: t(`message.feedback.${message.feedback}`) })}</p>
   }
   return (
-    <div className="mt-3 flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-2 self-start">
       <Button variant="outline" size="sm" onClick={() => { good.mutate(); }} disabled={good.isPending}>
         <ThumbsUp aria-hidden />
         {t('message.feedback.good')}
@@ -161,15 +180,15 @@ export function AssistantMessage({
   /** Called after feedback was saved: the caller refreshes what it shows. */
   onChanged: () => void
 }) {
+  const citations = message.citations.map(asCitation)
   return (
     <article data-message={message.id} data-source={message.source ?? undefined}>
+      <SourceRow source={message.source} provenance={message.provenance} citations={citations.length} />
       <Markdown text={message.content_md} />
-      <Citations items={message.citations.map(asCitation)} />
-      <Meta source={message.source} provenance={message.provenance} path={message.path} />
-      {/* A replaced answer takes no more feedback. */}
-      {!message.superseded_by && (
-        <FeedbackBar message={message} onReanswer={onReanswer} onChanged={onChanged} />
-      )}
+      <ProvenanceCard citations={citations} path={message.path}>
+        {/* A replaced answer takes no more feedback. */}
+        {!message.superseded_by && <FeedbackBar message={message} onReanswer={onReanswer} onChanged={onChanged} />}
+      </ProvenanceCard>
     </article>
   )
 }

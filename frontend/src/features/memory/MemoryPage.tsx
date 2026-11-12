@@ -36,12 +36,12 @@ export function MemoryPage() {
   const down = unavailable(memories.error) || unavailable(candidates.error)
   return (
     <div className="mx-auto max-w-3xl p-4 md:p-8">
-      <h1 className="mb-2 font-serif text-2xl font-semibold">{t('memory.title')}</h1>
+      <h1 className="mb-2 font-serif text-2xl font-medium">{t('memory.title')}</h1>
       <p className="mb-6 text-sm text-muted-foreground">{t('memory.intro')}</p>
       {down && <p role="alert" className="mb-6 text-sm text-warn">{t('memory.unavailable')}</p>}
 
       <section aria-label={t('memory.candidates')} className="mb-10">
-        <h2 className="mb-3 font-serif text-lg font-semibold">{t('memory.candidates')}</h2>
+        <h2 className="mb-3 font-serif text-lg font-medium">{t('memory.candidates')}</h2>
         {candidates.error && !down && <QueryError error={candidates.error} onRetry={() => void candidates.refetch()} />}
         {candidates.data?.items.length === 0 && <p className="text-sm text-muted-foreground">{t('memory.candidatesEmpty')}</p>}
         <ul className="flex flex-col gap-4">
@@ -50,7 +50,7 @@ export function MemoryPage() {
       </section>
 
       <section aria-label={t('memory.title')}>
-        <h2 className="mb-3 font-serif text-lg font-semibold">{t('memory.title')}</h2>
+        <h2 className="mb-3 font-serif text-lg font-medium">{t('memory.title')}</h2>
         {memories.error && !down && <QueryError error={memories.error} onRetry={() => void memories.refetch()} />}
         {memories.data?.pages[0]?.items.length === 0 && <p className="text-sm text-muted-foreground">{t('memory.empty')}</p>}
         <ul className="divide-y border-y empty:hidden">

@@ -14,7 +14,7 @@ export function TopicsPage() {
   return (
     <div className="mx-auto max-w-3xl p-4 md:p-8">
       <div className="mb-6 flex items-center justify-between gap-3">
-        <h1 className="font-serif text-2xl font-semibold">{t('topics.title')}</h1>
+        <h1 className="font-serif text-2xl font-medium">{t('topics.title')}</h1>
         <Button onClick={() => { setCreating(true); }}>
           <Plus aria-hidden />
           {t('topics.new')}

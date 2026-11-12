@@ -38,7 +38,7 @@ export function TopicHome() {
   const header = (
     <header className="mb-6">
       <div className="flex items-start justify-between gap-2">
-        <h1 className="font-serif text-2xl leading-tight font-semibold md:text-3xl">{topic.title}</h1>
+        <h1 className="title-display">{topic.title}</h1>
         <Button variant="ghost" size="icon" asChild>
           <Link to={`/topics/${topic.id}/settings`} aria-label={t('topicSettings.title')} title={t('topicSettings.title')}>
             <Settings aria-hidden />
@@ -100,7 +100,7 @@ export function TopicHome() {
       {/* On a wide screen the outline has its own pane: here it shows only while editing. */}
       <section aria-label={t('outline.title')} className="mb-6">
         <div className="mb-2 flex items-center justify-between gap-2">
-          {(editing || layout !== 'three') && <h2 className="font-serif text-lg font-semibold">{t('outline.title')}</h2>}
+          {(editing || layout !== 'three') && <h2 className="font-serif text-lg font-medium">{t('outline.title')}</h2>}
           <Button
             variant={editing ? 'default' : 'outline'}
             size="sm"

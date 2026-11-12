@@ -2,7 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, Outlet, useLocation, useParams } from 'react-router'
+import { Outlet, useLocation, useParams } from 'react-router'
 import { api } from '@/api/endpoints'
 import { QueryError, QueryLoading } from '@/components/QueryState'
 import { ResponsiveSplit } from '@/components/ResponsiveSplit'
@@ -44,11 +44,13 @@ export function TopicLayout() {
   const detail = topic.data
   const confirmed = detail.topic.outline_status === 'confirmed'
   const runId = run.data?.id
+  const done = detail.nodes.filter((n) => n.status === 'done').length
   const outline = (
-    <div>
-      <Link to={`/topics/${topicId}`} className="mb-3 block font-serif text-lg leading-snug font-semibold">
-        {detail.topic.title}
-      </Link>
+    <div className="flex min-h-full flex-col">
+      <div className="mb-2 flex items-center justify-between px-2.5 text-xs text-muted-foreground">
+        <span className="eyebrow">{t('outline.title')}</span>
+        {confirmed && <span className="tabular-nums">{t('outline.doneCount', { done, total: detail.nodes.length })}</span>}
+      </div>
       {confirmed ? (
         <OutlineTree
           topicId={topicId}
@@ -64,7 +66,7 @@ export function TopicLayout() {
           }
         />
       ) : (
-        <p className="text-sm text-muted-foreground">{t('topics.draft')}</p>
+        <p className="px-2.5 text-sm text-muted-foreground">{t('topics.draft')}</p>
       )}
     </div>
   )
@@ -73,7 +75,7 @@ export function TopicLayout() {
       closeKey={location.pathname}
       outline={outline}
       main={<Outlet context={{ detail, run: run.data } satisfies TopicContext} />}
-      notes={<NotesPane nodeId={nodeId} />}
+      notes={<NotesPane topicId={topicId} nodeId={nodeId} nodeTitle={detail.nodes.find((n) => n.id === nodeId)?.title} />}
     />
   )
 }

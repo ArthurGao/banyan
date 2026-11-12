@@ -97,7 +97,7 @@ function QuickAsk({ topicId, onClose }: { topicId: string; onClose: () => void }
     const place = state.placement
     return (
       <div className="flex flex-col gap-4">
-        <p className="ml-auto w-fit rounded-lg bg-secondary px-3 py-2 text-sm whitespace-pre-wrap">{question}</p>
+        <p className="bubble-you ml-auto w-fit text-sm">{question}</p>
         {place && <p className="text-xs text-muted-foreground">{t('quickAsk.filedUnder', { title: titleOf(place.nodeId) || verdict?.suggested_node?.title })}</p>}
         <StreamingMessage state={state} onStop={stop} />
         {place && state.phase !== 'streaming' && (

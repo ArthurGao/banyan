@@ -1,22 +1,23 @@
+import { BookMarked } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { Source } from '@/api/generated'
-import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
 
-// The accent means one thing: "came from the knowledge base". `kb` is filled; the others outlined.
+// The accent marks what came from the knowledge base: `kb` is filled green with a book, `mixed`
+// outlined green, `llm` / `web` outlined neutral (comp A).
+const VARIANT = { kb: 'kb', mixed: 'kb-outline', llm: 'quiet', web: 'quiet' } as const
+
 export function SourceBadge({ source }: { source: Source }) {
   const { t } = useTranslation()
-  const name = t(`message.source.${source}`)
   return (
-    <span
+    <Badge
+      variant={VARIANT[source]}
       data-source={source}
-      aria-label={t('message.sourceLabel', { source: name })}
-      className={cn(
-        'inline-flex h-6 items-center rounded-sm border px-2 text-xs font-medium',
-        source === 'kb' ? 'border-kb bg-kb text-kb-foreground' : 'border-border text-muted-foreground',
-        source === 'mixed' && 'border-kb text-kb',
-      )}
+      aria-label={t('message.sourceLabel', { source: t(`message.source.${source}`) })}
+      className="h-6 gap-1.5 px-2.5 tracking-[0.02em]"
     >
-      {name}
-    </span>
+      {source === 'kb' && <BookMarked aria-hidden />}
+      {t(`message.sourceFrom.${source}`)}
+    </Badge>
   )
 }

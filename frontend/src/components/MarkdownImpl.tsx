@@ -21,8 +21,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
       .then(({ codeToHtml, bundledLanguages }) =>
         codeToHtml(code, {
           lang: lang in bundledLanguages ? lang : 'text',
-          themes: { light: 'github-light', dark: 'github-dark' },
-          defaultColor: 'light',
+          theme: 'github-dark', // code blocks are dark in both app themes (comp A)
         }),
       )
       .then((out) => {

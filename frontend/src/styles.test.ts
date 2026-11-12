@@ -39,6 +39,13 @@ const PAIRS: [string, string][] = [
   ['kb', 'card'],
   ['warn', 'background'],
   ['destructive', 'background'],
+  // comp A surfaces (2026-11-13): panes, current node, chips, code blocks
+  ['muted-foreground', 'panel'],
+  ['foreground', 'panel'],
+  ['foreground', 'kb-soft'],
+  ['kb', 'panel'],
+  ['destructive', 'warn-soft'],
+  ['code-foreground', 'code'],
 ]
 
 describe.each([

@@ -22,8 +22,15 @@ export const keys = {
 export const useTopics = () => useQuery({ queryKey: keys.topics, queryFn: api.topics })
 
 /** The topic with its outline in reading order (numbered), computed once per response. */
-export const useTopic = (id: string) =>
-  useQuery({ queryKey: keys.topic(id), queryFn: () => api.topic(id), select: (detail) => ({ ...detail, order: readingOrder(detail.nodes) }) })
+// Stable selectors: TanStack re-runs an inline one on every render of every observer.
+const withOrder = (detail: TopicDetail) => ({ ...detail, order: readingOrder(detail.nodes) })
+const titleOf = (detail: TopicDetail) => detail.topic.title
+const latestRunOf = (detail: TopicDetail) => detail.latest_run_id
+
+export const useTopic = (id: string) => useQuery({ queryKey: keys.topic(id), queryFn: () => api.topic(id), select: withOrder })
+/** The top bar needs one field each; same cache entry, no reading-order work. */
+export const useTopicTitle = (id: string) => useQuery({ queryKey: keys.topic(id), queryFn: () => api.topic(id), select: titleOf })
+export const useLatestRunId = (id: string) => useQuery({ queryKey: keys.topic(id), queryFn: () => api.topic(id), select: latestRunOf })
 
 /** A node; its outline entry in the topic cache is updated from it (the server flips a node to
  * `learning` when its explanation is recorded). Polls while its explanation is made elsewhere,

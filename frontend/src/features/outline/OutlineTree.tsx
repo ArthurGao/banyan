@@ -5,13 +5,14 @@ import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, us
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Check, CircleDot, Circle, GripVertical, Loader2, MoreHorizontal, AlertTriangle } from 'lucide-react'
+import { GripVertical, Loader2, MoreHorizontal } from 'lucide-react'
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import type { NodeOut, NodeStatus } from '@/api/generated'
 import { api } from '@/api/endpoints'
 import { QueryError } from '@/components/QueryState'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -24,10 +25,11 @@ import { refreshTopic } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 
 
-const STATUS_ICON: Record<NodeStatus, ReactNode> = {
-  not_started: <Circle className="size-3.5 text-muted-foreground" aria-hidden />,
-  learning: <CircleDot className="size-3.5 text-foreground" aria-hidden />,
-  done: <Check className="size-3.5 text-foreground" aria-hidden />,
+// Progress as a 10px dot (comp A): empty, half green while learning, solid green when done.
+const DOT: Record<NodeStatus, string> = {
+  not_started: 'border-muted-foreground/50',
+  learning: 'border-kb bg-[linear-gradient(90deg,var(--kb)_50%,transparent_50%)]',
+  done: 'border-kb bg-kb',
 }
 
 interface Props {
@@ -51,6 +53,7 @@ export function OutlineTree({ topicId, nodes, activeNodeId, editable = false, ex
   const [editing, setEditing] = useState<Editing | null>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const tree = buildTree(nodes)
+  const active = nodes.find((n) => n.id === activeNodeId)
   const refresh = () => refreshTopic(queryClient, topicId).then(() => undefined)
 
   const move = useMutation({
@@ -121,6 +124,17 @@ export function OutlineTree({ topicId, nodes, activeNodeId, editable = false, ex
           + {t('outline.addNode')}
         </Button>
       )}
+      {!editable && active && (
+        <Button
+          variant="outline"
+          className="mt-4 w-full"
+          onClick={() => {
+            setEditing({ kind: 'add', parentId: active.parent_id, position: active.position, origin: 'prerequisite' })
+          }}
+        >
+          + {t('outline.insertPrerequisite')}
+        </Button>
+      )}
       <EditDialog topicId={topicId} editing={editing} onClose={() => { setEditing(null); }} onDone={refresh} />
     </nav>
   )
@@ -153,7 +167,10 @@ function Row({
   const style = { transform: CSS.Transform.toString(transform), transition }
   return (
     <li ref={setNodeRef} style={style} role="treeitem" aria-level={node.depth + 1} aria-selected={active} aria-current={active ? 'page' : undefined}>
-      <div className={cn('group flex items-center gap-1 rounded-sm', active && 'bg-secondary', isDragging && 'opacity-60')} style={{ paddingLeft: `${node.depth * 0.9}rem` }}>
+      <div
+        className={cn('group flex items-center gap-1 rounded-md pr-1', active && 'bg-kb-soft font-semibold text-foreground', isDragging && 'opacity-60')}
+        style={{ paddingLeft: `${0.375 + node.depth * 1.125}rem` }}
+      >
         {editable && (
           <button type="button" aria-label={t('outline.dragHandle')} className="cursor-grab touch-none p-1 text-muted-foreground pointer-coarse:hidden" {...attributes} {...listeners}>
             <GripVertical className="size-3.5" aria-hidden />
@@ -162,24 +179,30 @@ function Row({
         <Link
           data-node-link
           to={`/topics/${topicId}/nodes/${node.id}`}
-          className="flex min-h-9 min-w-0 flex-1 items-center gap-2 px-1 py-1 pointer-coarse:min-h-11"
+          className="flex min-h-9 min-w-0 flex-1 items-center gap-2.5 px-1 py-1 pointer-coarse:min-h-11"
           title={node.summary ?? undefined}
         >
-          <span className="w-10 shrink-0 font-mono text-xs text-muted-foreground tabular-nums">{item.number}</span>
+          <span className="w-7 shrink-0 text-xs text-muted-foreground tabular-nums">{item.number}</span>
+          <span aria-hidden data-status={node.status} className={cn('size-2.5 shrink-0 rounded-full border-[1.5px]', DOT[node.status])} />
           <span className="min-w-0 flex-1 truncate">{node.title}</span>
           <span className="sr-only">{t(`outline.status.${node.status}`)}</span>
           {state === 'generating' && (
-            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" aria-hidden />
-              <span className="sr-only md:not-sr-only">{t('outline.explanation.generating')}</span>
-            </span>
+            <Badge variant="muted" className="h-5 text-[11px]">
+              <Loader2 className="animate-spin" aria-hidden />
+              {t('outline.explanation.generating')}
+            </Badge>
           )}
-          {state !== 'failed' && STATUS_ICON[node.status]}
         </Link>
         {state === 'failed' && (
-          <button type="button" onClick={() => onRetry?.(node.id)} className="inline-flex min-h-9 items-center gap-1 px-1 text-xs text-destructive pointer-coarse:min-h-11" title={t('outline.explanation.failed')}>
-            <AlertTriangle className="size-3.5" aria-hidden />
-            <span>{t('outline.explanation.failed')}</span>
+          <button
+            type="button"
+            onClick={() => onRetry?.(node.id)}
+            className="inline-flex min-h-9 shrink-0 items-center pointer-coarse:min-h-11"
+            title={t('outline.explanation.failed')}
+          >
+            <Badge variant="warn" className="h-5 text-[11px]">
+              {t('outline.explanation.failed')}
+            </Badge>
           </button>
         )}
         {editable && (

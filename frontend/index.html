@@ -9,6 +9,15 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <title>Banyan</title>
+    <script>
+      // Before the first paint: light unless dark or system was chosen (src/lib/theme.ts).
+      try {
+        var t = localStorage.getItem('banyan.theme')
+        if (t !== 'system') document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light')
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light')
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

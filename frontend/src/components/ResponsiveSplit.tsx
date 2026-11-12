@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { useLayout } from '@/lib/layout'
+import { cn } from '@/lib/utils'
 
 // One shell for every size (frontend/AGENTS.md rule 2): three panes from 1200px, two from 768px
 // (outline in a left drawer), one below (outline and notes in bottom sheets). Panes are separated by
@@ -29,9 +30,9 @@ export function ResponsiveSplit({ outline, main, notes, closeKey }: Props) {
 
   if (layout === 'three') {
     return (
-      <div data-layout="three" className="grid h-full grid-cols-[18rem_minmax(0,1fr)_20rem] grid-rows-[minmax(0,1fr)]">
+      <div data-layout="three" className="grid h-full grid-cols-[17.5rem_minmax(0,1fr)_20rem] grid-rows-[minmax(0,1fr)]">
         <Pane name="outline">{outline}</Pane>
-        <Pane name="main">{main}</Pane>
+        <Pane name="main" reading>{main}</Pane>
         <Pane name="notes">{notes}</Pane>
       </div>
     )
@@ -39,7 +40,7 @@ export function ResponsiveSplit({ outline, main, notes, closeKey }: Props) {
 
   return (
     <div data-layout={layout} className={layout === 'two' ? 'grid h-full grid-cols-[minmax(0,1fr)_18rem] grid-rows-[minmax(0,1fr)]' : 'h-full'}>
-      <Pane name="main">
+      <Pane name="main" reading>
         <div className="mb-3 flex gap-2">
           <Button variant="outline" size="sm" onClick={() => { setOpen('outline'); }} aria-expanded={open === 'outline'}>
             <ListTree aria-hidden />
@@ -73,9 +74,17 @@ export function ResponsiveSplit({ outline, main, notes, closeKey }: Props) {
   )
 }
 
-function Pane({ name, children }: { name: string; children: ReactNode }) {
+/** `reading`: the middle column, with comp A's wide margins; side panes sit on the panel tone. */
+function Pane({ name, reading = false, children }: { name: string; reading?: boolean; children: ReactNode }) {
   return (
-    <section data-pane={name} aria-label={name} className="relative h-full min-h-0 min-w-0 overflow-auto border-border p-4 not-last:border-r md:p-6">
+    <section
+      data-pane={name}
+      aria-label={name}
+      className={cn(
+        'relative h-full min-h-0 min-w-0 overflow-auto border-border p-4 not-last:border-r md:p-6',
+        reading ? 'xl:px-14 xl:py-9' : 'bg-panel md:px-3 md:py-5',
+      )}
+    >
       {children}
     </section>
   )

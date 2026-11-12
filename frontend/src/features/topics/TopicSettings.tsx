@@ -41,7 +41,7 @@ export function TopicSettings() {
   }
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="mb-6 font-serif text-2xl font-semibold">{t('topicSettings.title')}</h1>
+      <h1 className="mb-6 font-serif text-2xl font-medium">{t('topicSettings.title')}</h1>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <div className="flex flex-col gap-2">
           <Label htmlFor="t-title">{t('topicSettings.name')}</Label>

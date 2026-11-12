@@ -50,3 +50,19 @@ test('a prerequisite is inserted before the node, at its position', async () => 
     }); },
   )
 })
+
+test('each node shows its progress as a dot, and the open node offers a prerequisite before it', async () => {
+  const calls = mockApi({ 'POST /v1/topics/t1/nodes': () => json(NODES[0], 201), 'GET /v1/topics/t1': () => json(TOPIC) })
+  const nodes = [{ ...NODES[0]!, status: 'done' as const }, { ...NODES[1]!, status: 'learning' as const }, NODES[2]!]
+  const { container } = renderWithApp(<OutlineTree topicId="t1" nodes={nodes} activeNodeId="n3" />)
+  expect([...container.querySelectorAll('[data-status]')].map((d) => d.getAttribute('data-status'))).toEqual(['done', 'learning', 'not_started'])
+  await userEvent.click(screen.getByRole('button', { name: '+ Insert a prerequisite' }))
+  await userEvent.type(screen.getByLabelText('Node title'), 'IP addressing')
+  await userEvent.click(screen.getByRole('button', { name: 'Save' }))
+  await waitFor(() => {
+    expect(calls).toContainEqual({
+      method: 'POST', path: '/v1/topics/t1/nodes',
+      body: { title: 'IP addressing', summary: null, parent_id: 'n2', position: 0, origin: 'prerequisite' },
+    })
+  })
+})

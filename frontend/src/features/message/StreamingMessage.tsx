@@ -6,7 +6,7 @@ import type { StreamState } from '@/api/sse'
 import { Markdown } from '@/components/Markdown'
 import { StatusLine } from '@/components/StatusLine'
 import { Button } from '@/components/ui/button'
-import { Citations, Meta } from '@/features/message/AssistantMessage'
+import { ProvenanceCard, SourceRow } from '@/features/message/AssistantMessage'
 
 export function StreamingMessage({ state, onStop, onRetry }: { state: StreamState; onStop: () => void; onRetry?: (() => void) | undefined }) {
   const { t } = useTranslation()
@@ -16,6 +16,9 @@ export function StreamingMessage({ state, onStop, onRetry }: { state: StreamStat
   return (
     <article aria-busy={state.phase === 'streaming'} data-streaming={state.phase}>
       <StatusLine state={state} />
+      {state.phase === 'done' && state.done && (
+        <SourceRow source={state.done.source} citations={state.citations.length} usage={state.done.usage} />
+      )}
       {text && <Markdown text={text} />}
       {state.phase === 'streaming' && (
         <Button variant="outline" size="sm" className="mt-3" onClick={onStop}>
@@ -23,10 +26,7 @@ export function StreamingMessage({ state, onStop, onRetry }: { state: StreamStat
         </Button>
       )}
       {state.phase === 'done' && state.done && (
-        <>
-          <Citations items={state.citations} />
-          <Meta source={state.done.source} path={state.done.path} usage={state.done.usage} warnings={state.done.warnings} />
-        </>
+        <ProvenanceCard citations={state.citations} path={state.done.path} warnings={state.done.warnings} />
       )}
       {state.phase === 'aborted' && <p className="mt-2 text-sm text-muted-foreground">{t('branch.aborted')}</p>}
       {state.phase === 'error' && (

@@ -1,54 +1,66 @@
-import { Languages, MessageCircleQuestion, MoreHorizontal } from 'lucide-react'
+// Top bar (comp A): mark and topic breadcrumb on the left; generate-all meter, quick ask, memory and
+// the menu on the right. Pages, language and theme live in the menu at every width.
+import { Lightbulb, MoreHorizontal, Search } from 'lucide-react'
 import { Suspense, lazy, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, NavLink, Outlet, useMatch, useNavigate } from 'react-router'
-import { ThemeToggle } from '@/components/ThemeToggle'
+import { Link, Outlet, useMatch, useNavigate } from 'react-router'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { HealthBadge } from '@/features/health/HealthBadge'
-import { useCandidates } from '@/lib/queries'
+import { RunMeter } from '@/features/run/RunMeter'
+import { currentLanguage, setLanguage } from '@/i18n'
+import { useCandidates, useTopicTitle } from '@/lib/queries'
 import { nextTheme, useTheme } from '@/lib/theme'
-import { cn } from '@/lib/utils'
 
 // Loaded when first opened: it pulls in the Markdown stack.
 const QuickAskDialog = lazy(() => import('@/features/quickask/QuickAskDialog').then((m) => ({ default: m.QuickAskDialog })))
 
-const navClass = ({ isActive }: { isActive: boolean }) =>
-  cn('inline-flex h-9 items-center rounded-md px-1.5 text-sm whitespace-nowrap sm:px-2 pointer-coarse:min-h-11', isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')
-
-function toggleLanguage(i18n: { resolvedLanguage?: string | undefined; changeLanguage: (l: string) => Promise<unknown> }) {
-  void i18n.changeLanguage(i18n.resolvedLanguage === 'en' ? 'zh' : 'en')
+/** A banyan: a trunk, two leaves, two aerial roots that became supports. */
+function BanyanMark() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="text-kb" aria-hidden>
+      <path d="M12 21V9" />
+      <path d="M12 9c-4 0-7-3-7-6 3 0 7 2 7 6Zm0 0c4 0 7-3 7-6-3 0-7 2-7 6Z" />
+      <path d="M8 21v-5M16 21v-5" />
+    </svg>
+  )
 }
 
-// On a phone the top bar keeps topics, memory and quick ask; usage, language and theme move into
-// a menu so nothing scrolls sideways at 390px with 44px touch targets.
-function PhoneMenu() {
-  const { t, i18n } = useTranslation()
+function Menu() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const { choice, cycle } = useTheme()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="sm:hidden" aria-label={t('app.settings')}>
+        <Button variant="ghost" size="icon" aria-label={t('app.settings')}>
           <MoreHorizontal aria-hidden />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => void navigate('/')}>{t('app.topics')}</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void navigate('/memory')}>{t('app.memory')}</DropdownMenuItem>
         <DropdownMenuItem onSelect={() => void navigate('/usage')}>{t('app.usage')}</DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => {
-            toggleLanguage(i18n)
-          }}
-        >
-          {t('app.language')}
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={cycle}
-        >
-          {t('app.theme.label', { name: t(`app.theme.${nextTheme(choice)}`) })}
-        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => void setLanguage(currentLanguage() === 'en' ? 'zh' : 'en')}>{t('app.language')}</DropdownMenuItem>
+        <DropdownMenuItem onSelect={cycle}>{t('app.theme.label', { name: t(`app.theme.${nextTheme(choice)}`) })}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+function Breadcrumb({ topicId }: { topicId: string }) {
+  const title = useTopicTitle(topicId).data
+  if (!title) return null
+  return (
+    <>
+      <span className="text-muted-foreground" aria-hidden>
+        /
+      </span>
+      <Link to={`/topics/${topicId}`} className="min-w-0 truncate font-serif text-[17px]">
+        {title}
+      </Link>
+    </>
   )
 }
 
@@ -56,57 +68,37 @@ export function Shell() {
   const { t, i18n } = useTranslation()
   const [asking, setAsking] = useState(false)
   const topicId = useMatch('/topics/:topicId/*')?.params.topicId
-  // Candidates waiting for a decision; a down steward just shows no badge (the page says why).
+  // Candidates waiting for a decision; a down steward just shows no dot (the page says why).
   const waiting = useCandidates().data?.items.length ?? 0
   return (
     <div className="flex h-full flex-col" lang={i18n.resolvedLanguage}>
-      <header className="flex items-center gap-1 border-b px-2 py-1.5 sm:gap-2 md:px-4">
-        <Link to="/" className="px-1 font-serif text-lg font-semibold tracking-tight">
-          {t('app.name')}
+      <header className="flex h-14 shrink-0 items-center gap-2.5 border-b bg-panel px-3 md:px-5">
+        <Link to="/" className="flex shrink-0 items-center gap-2" aria-label={t('app.topics')}>
+          <BanyanMark />
+          <span className="font-serif text-xl font-medium">{t('app.name')}</span>
         </Link>
-        <nav className="flex items-center gap-0.5 sm:ml-2 sm:gap-1" aria-label="main">
-          <NavLink to="/" end className={navClass}>
-            {t('app.topics')}
-          </NavLink>
-          <NavLink to="/memory" className={navClass}>
-            {t('app.memory')}
-            {waiting > 0 && (
-              <span className="ml-1 rounded-sm bg-kb px-1.5 text-xs text-kb-foreground tabular-nums" aria-label={t('memory.candidatesBadge', { count: waiting })}>
-                {waiting}
-              </span>
-            )}
-          </NavLink>
-          <NavLink to="/usage" className={(s) => cn(navClass(s), 'hidden sm:inline-flex')}>
-            {t('app.usage')}
-          </NavLink>
-        </nav>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
+        {topicId && <Breadcrumb topicId={topicId} />}
+        <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-3">
+          {topicId && <RunMeter topicId={topicId} />}
+          <HealthBadge />
+          <button
+            type="button"
             aria-label={t('quickAsk.label')}
             onClick={() => {
               setAsking(true)
             }}
+            className="flex h-9 items-center gap-2 rounded-md border border-input bg-card px-2.5 text-sm text-muted-foreground hover:text-foreground md:w-65 pointer-coarse:min-h-11"
           >
-            <MessageCircleQuestion aria-hidden />
-            <span className="hidden md:inline">{t('quickAsk.label')}</span>
+            <Search className="size-4" aria-hidden />
+            <span className="hidden md:inline">{t('quickAsk.trigger')}</span>
+          </button>
+          <Button variant="outline" size="icon" asChild className="relative">
+            <Link to="/memory" aria-label={waiting > 0 ? t('memory.candidatesBadge', { count: waiting }) : t('app.memory')}>
+              <Lightbulb aria-hidden />
+              {waiting > 0 && <span aria-hidden className="absolute top-1.5 right-1.5 size-2 rounded-full bg-warn" />}
+            </Link>
           </Button>
-          <HealthBadge />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="hidden sm:inline-flex"
-            title={t('app.languageLabel')}
-            onClick={() => {
-              toggleLanguage(i18n)
-            }}
-          >
-            <Languages aria-hidden />
-            {t('app.language')}
-          </Button>
-          <ThemeToggle className="hidden sm:inline-flex" />
-          <PhoneMenu />
+          <Menu />
         </div>
       </header>
       <main className="min-h-0 flex-1">

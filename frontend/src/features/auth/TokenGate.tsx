@@ -48,7 +48,7 @@ export function TokenGate({ children }: { children: ReactNode }) {
 
   return (
     <main className="mx-auto flex min-h-full max-w-sm flex-col justify-center gap-4 p-6">
-      <h1 className="font-serif text-2xl font-semibold">{t('token.title')}</h1>
+      <h1 className="font-serif text-2xl font-medium">{t('token.title')}</h1>
       <p className="text-sm text-muted-foreground">{t('token.body')}</p>
       <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-3">
         <Label htmlFor="token">{t('token.label')}</Label>

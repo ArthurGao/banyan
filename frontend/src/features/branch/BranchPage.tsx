@@ -96,7 +96,7 @@ function BranchView({ branchId, nodeId }: { branchId: string; nodeId: string }) 
             <ArrowLeft className="size-4" aria-hidden />
             {node?.title}
           </Link>
-          <h1 className="font-serif text-xl leading-snug font-semibold">{b.title}</h1>
+          <h1 className="mt-1 font-serif text-2xl leading-snug font-medium">{b.title}</h1>
           {b.closed_at && (
             <p className="text-xs text-muted-foreground">
               {t('node.closed')} · {t('branch.reopen')}
@@ -120,7 +120,7 @@ function BranchView({ branchId, nodeId }: { branchId: string; nodeId: string }) 
         {messages.map((m) => {
           if (m.role === 'user') {
             return (
-              <li key={m.id} className="self-end rounded-lg bg-secondary px-3 py-2 whitespace-pre-wrap md:max-w-[85%]">
+              <li key={m.id} className="bubble-you self-end md:max-w-[85%]">
                 {m.content_md}
               </li>
             )
@@ -142,7 +142,7 @@ function BranchView({ branchId, nodeId }: { branchId: string; nodeId: string }) 
         {live && (
           <li>
             {lastAsk && !messages.some((m) => m.role === 'user' && m.content_md === lastAsk.question) && (
-              <p className="mb-4 ml-auto w-fit rounded-lg bg-secondary px-3 py-2 whitespace-pre-wrap md:max-w-[85%]">{lastAsk.question}</p>
+              <p className="bubble-you mb-4 ml-auto w-fit md:max-w-[85%]">{lastAsk.question}</p>
             )}
             <StreamingMessage state={state} onStop={stop} onRetry={lastAsk ? () => { ask(lastAsk) } : undefined} />
           </li>

@@ -1,12 +1,12 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { RunOut } from '@/api/generated'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { RunOut, RunPatch } from '@/api/generated'
 import { api } from '@/api/endpoints'
 import type { ExplanationState } from '@/lib/outline'
 import { keys } from '@/lib/queries'
 
 export const UNFINISHED: RunOut['status'][] = ['running', 'paused', 'budget_exhausted']
 
-const doneCount = (run: RunOut | undefined) => run?.nodes.filter((n) => n.status === 'done').length ?? 0
+export const doneCount = (run: RunOut | undefined) => run?.nodes.filter((n) => n.status === 'done').length ?? 0
 
 /** The topic's latest run, polled while it is running (design §9: the client polls progress).
  * Each finished node also changed the outline (its status), so the topic is refreshed then. */
@@ -34,3 +34,15 @@ export function explanationStates(run: RunOut | undefined): Record<string, Expla
   }
   return out
 }
+
+/** Pause, resume, cancel or add budget; the run query takes the server's answer. */
+export function useChangeRun(runId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: RunPatch) => api.changeRun(runId, body),
+    onSuccess: (next) => queryClient.setQueryData(keys.run(runId), next),
+  })
+}
+
+/** The one toggle a running or paused run offers. */
+export const pauseOrResume = (status: RunOut['status']) => (status === 'running' ? 'pause' : status === 'paused' ? 'resume' : null)
