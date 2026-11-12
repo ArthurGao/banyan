@@ -864,6 +864,9 @@ error     {code, message}
     Linux 的 `network_mode: host` 说法不对（主机网络要用 `127.0.0.1` 地址，`ports` 不生效）。驳回三条：并发压缩覆盖新摘要（同一支线的压缩
     任务按去重键串行，且 compare-and-set 比较的是读到的旧水位，后到的一次匹配不上）；重答提前入队压缩（重答传 `compress=False`，不入队）；
     缺支线移动测试（B1 的 `test_outline_api.py:138` 已覆盖）。修复不涉及 §4 / §6 / §8，没有再跑 Codex。
+  - 2026-11-13 补跑 `-m steward_live`：本机 steward（native 引擎，namespace `banyan` 由 `deploy/steward/banyan.yaml` 应用，读写与 review
+    两把临时 key，跑完吊销）2 个测试通过——真实 HTTP、两把 key 的 scope 路由、条目同步与定级。lite-rag + lite-mem 组合（同步延迟、rerank
+    分数、真实记忆抽取）仍待两者的服务起来后再跑。
 
 ### 之后（v2 候选）
 
