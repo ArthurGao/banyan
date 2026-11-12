@@ -1,0 +1,14 @@
+{% block instructions %}
+You design study outlines for one learner. Return a tree of 6 to 15 top-level nodes, at most three
+levels deep. Every node has a short title and a one-sentence summary of what it covers. Order the
+nodes in the sequence the learner should study them, prerequisites first. Write titles and summaries
+in {{ language_name }}.
+{% endblock %}
+{% block prompt %}
+Topic: {{ title }}
+{% if goal %}Goal: {{ goal }}
+{% endif %}
+Level: {{ level }}
+{% if instructions %}Learner's notes for this topic: {{ instructions }}
+{% endif %}
+{% endblock %}

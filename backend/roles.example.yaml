@@ -1,0 +1,23 @@
+# LLM roles (design §7). Copy to roles.yaml (gitignored), set BANYAN_ROLES_FILE=roles.yaml, and put
+# each provider's key in the environment variable it names. Model names live here, never in code.
+# Startup checks this file only (required roles mapped, capabilities fit); /health does not probe.
+providers:
+  anthropic: {kind: anthropic, api_key_env: ANTHROPIC_API_KEY}
+  deepseek: {kind: openai_compatible, base_url: "https://api.deepseek.com", api_key_env: DEEPSEEK_API_KEY}
+  ollama: {kind: openai_compatible, base_url: "http://127.0.0.1:11434/v1"}
+  # llm-gateway, local development only and only when you started it:
+  # gateway: {kind: openai_compatible, base_url: "http://127.0.0.1:8787/v1", api_key_env: GATEWAY_KEY}
+
+# The capability table (design §7.2): tool roles need `tools`, structured roles `structured`.
+models:
+  - {provider: anthropic, name: "<strong-model>", tools: true, structured: true, context: 200000}
+  - {provider: deepseek, name: "<cheap-model>", tools: true, structured: true, context: 64000}
+  - {provider: ollama, name: "qwen3:8b", tools: false, structured: true, context: 32000}
+
+roles:
+  # Required from B1:
+  outline.generate: anthropic/<strong-model>
+  node.explain: anthropic/<strong-model>
+  answer.compose: anthropic/<strong-model>
+  # Optional in B1 (the step records "skipped" without it), required later:
+  judge.freshness: ollama/qwen3:8b

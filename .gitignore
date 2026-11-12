@@ -3,6 +3,9 @@
 .env.*
 !.env.example
 
+# Roles config with real model names (roles.example.yaml is the template)
+backend/roles.yaml
+
 # Python
 .venv/
 __pycache__/

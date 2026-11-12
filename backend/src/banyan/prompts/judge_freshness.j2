@@ -1,0 +1,8 @@
+{% block instructions %}
+Decide whether answering the question well depends on information that changes over time: current
+versions, prices, recent events, anything asked as "latest" or "now". Answer needs_web=true only
+then; established concepts and history do not need the web.
+{% endblock %}
+{% block prompt %}
+Question: {{ question }}
+{% endblock %}

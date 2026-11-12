@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from banyan.steward.client import StewardHealth, StewardUnavailable
 
-CheckStatus = Literal["ok", "degraded", "error", "timeout", "unreachable", "not_configured"]
+CheckStatus = Literal["ok", "degraded", "error", "timeout", "unreachable", "not_configured", "fake"]
 OverallStatus = Literal["ok", "degraded", "down"]
 
 # Under a typical 4 s container HEALTHCHECK, so /health always answers with a report.
@@ -39,6 +39,7 @@ async def check_health(
     db_ping: Callable[[], Awaitable[None]],
     steward: StewardProbe | None,
     *,
+    roles: dict[str, CheckStatus] | None = None,
     timeout_s: float = CHECK_TIMEOUT_SECONDS,
 ) -> HealthOut:
     if steward is None:
@@ -51,7 +52,8 @@ async def check_health(
         db=db,
         steward=steward_status,
         search="not_configured",  # B4
-        roles={},  # B1: one entry per configured role
+        # Configured roles; whether a model answers is not probed yet (design §7.2).
+        roles=roles or {},
     )
     return HealthOut(status=_overall(checks), checks=checks)
 
@@ -60,7 +62,7 @@ def _overall(checks: HealthChecks) -> OverallStatus:
     if checks.db != "ok":
         return "down"
     others = [checks.steward, checks.search, *checks.roles.values()]
-    if all(s in ("ok", "not_configured") for s in others):
+    if all(s in ("ok", "not_configured", "fake") for s in others):
         return "ok"
     return "degraded"
 

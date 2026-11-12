@@ -1,0 +1,30 @@
+{% block instructions %}
+You answer one learner's question inside a study topic, in Markdown, in {{ language_name }}. Stay on
+the question; be concrete; say so when you are not sure. {{ sources_rule }}
+{% endblock %}
+{% block prompt %}
+Topic: {{ topic_title }}
+Level: {{ level }}
+{% if instructions %}Learner's notes for this topic: {{ instructions }}
+{% endif %}
+Current node: {{ node_title }}{% if node_summary %} ({{ node_summary }}){% endif %}
+
+{% if explanation %}
+The node's explanation, for context:
+{{ explanation }}
+
+{% endif %}
+{% if history %}
+Earlier in this conversation:
+{% for turn in history %}
+{{ turn.role }}: {{ turn.content }}
+{% endfor %}
+
+{% endif %}
+{% if sources %}
+Reference material:
+{{ sources }}
+
+{% endif %}
+Question: {{ question }}
+{% endblock %}

@@ -52,8 +52,34 @@ class ProposedEntry:
     candidate_id: str | None
 
 
-class StewardClient(Protocol):
+def collection_name(topic_id: object) -> str:
+    """A topic's steward collection (design §8.2). Retrieval matches collections by NAME and
+    ignores ids without an error (B0 spike), so every caller uses this one rule."""
+    return f"topic-{topic_id}"
+
+
+class StewardReader(Protocol):
+    """What requests use: health and retrieval. Fakes implement this much."""
+
     async def health(self) -> StewardHealth: ...
+
+    async def retrieve(
+        self,
+        query: str,
+        *,
+        user_id: str,
+        # Collection NAMES: steward matches names here and silently ignores ids (B0 spike).
+        collections: list[str] | None = None,
+        tags: list[str] | None = None,
+        include_memory: bool = True,
+        top_k: int | None = None,
+        token_budget: int | None = None,
+        as_context: bool = False,
+    ) -> RetrievalResult: ...
+
+
+class StewardClient(StewardReader, Protocol):
+    """Everything Banyan does with steward; writes run in the worker (AGENTS.md rule 6)."""
 
     async def ensure_collection(
         self, name: str, *, review_policy: dict[str, str], idempotency_key: str
@@ -69,20 +95,6 @@ class StewardClient(Protocol):
         risk_level: Risk,
         idempotency_key: str,
     ) -> ProposedEntry: ...
-
-    async def retrieve(
-        self,
-        query: str,
-        *,
-        user_id: str,
-        # Collection NAMES: steward matches names here and silently ignores ids (B0 spike).
-        collections: list[str] | None = None,
-        tags: list[str] | None = None,
-        include_memory: bool = True,
-        top_k: int | None = None,
-        token_budget: int | None = None,
-        as_context: bool = False,
-    ) -> RetrievalResult: ...
 
     async def feedback(
         self,

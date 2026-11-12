@@ -1,6 +1,204 @@
 {
   "components": {
     "schemas": {
+      "AskBody": {
+        "properties": {
+          "allow_web": {
+            "default": true,
+            "description": "False: no web tools (B4); a time-sensitive answer gets warnings=[stale_risk]",
+            "title": "Allow Web",
+            "type": "boolean"
+          },
+          "question": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "AskBody",
+        "type": "object"
+      },
+      "BranchCreate": {
+        "properties": {
+          "title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "BranchCreate",
+        "type": "object"
+      },
+      "BranchDetail": {
+        "properties": {
+          "branch": {
+            "$ref": "#/components/schemas/BranchOut"
+          },
+          "messages": {
+            "description": "Committed messages only (status done)",
+            "items": {
+              "$ref": "#/components/schemas/MessageOut"
+            },
+            "title": "Messages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "branch",
+          "messages"
+        ],
+        "title": "BranchDetail",
+        "type": "object"
+      },
+      "BranchKind": {
+        "enum": [
+          "main",
+          "question"
+        ],
+        "title": "BranchKind",
+        "type": "string"
+      },
+      "BranchOut": {
+        "properties": {
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/BranchKind"
+          },
+          "node_id": {
+            "format": "uuid",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "node_id",
+          "kind",
+          "title",
+          "closed_at",
+          "created_at"
+        ],
+        "title": "BranchOut",
+        "type": "object"
+      },
+      "BranchPatch": {
+        "properties": {
+          "closed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Move the branch to another node",
+            "title": "Node Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "BranchPatch",
+        "type": "object"
+      },
+      "ConfirmOutline": {
+        "properties": {
+          "explain_mode": {
+            "$ref": "#/components/schemas/ExplainMode",
+            "default": "manual"
+          }
+        },
+        "title": "ConfirmOutline",
+        "type": "object"
+      },
+      "ExplainMode": {
+        "enum": [
+          "all",
+          "prefetch",
+          "manual"
+        ],
+        "title": "ExplainMode",
+        "type": "string"
+      },
+      "Feedback": {
+        "enum": [
+          "none",
+          "good",
+          "wrong",
+          "incomplete"
+        ],
+        "title": "Feedback",
+        "type": "string"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HealthChecks": {
         "properties": {
           "db": {
@@ -10,7 +208,8 @@
               "error",
               "timeout",
               "unreachable",
-              "not_configured"
+              "not_configured",
+              "fake"
             ],
             "title": "Db",
             "type": "string"
@@ -23,7 +222,8 @@
                 "error",
                 "timeout",
                 "unreachable",
-                "not_configured"
+                "not_configured",
+                "fake"
               ],
               "type": "string"
             },
@@ -37,7 +237,8 @@
               "error",
               "timeout",
               "unreachable",
-              "not_configured"
+              "not_configured",
+              "fake"
             ],
             "title": "Search",
             "type": "string"
@@ -49,7 +250,8 @@
               "error",
               "timeout",
               "unreachable",
-              "not_configured"
+              "not_configured",
+              "fake"
             ],
             "title": "Steward",
             "type": "string"
@@ -85,6 +287,776 @@
         ],
         "title": "HealthOut",
         "type": "object"
+      },
+      "Language": {
+        "enum": [
+          "zh",
+          "en",
+          "mixed"
+        ],
+        "title": "Language",
+        "type": "string"
+      },
+      "Level": {
+        "enum": [
+          "beginner",
+          "intermediate",
+          "advanced"
+        ],
+        "title": "Level",
+        "type": "string"
+      },
+      "MessageOut": {
+        "properties": {
+          "branch_id": {
+            "format": "uuid",
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "citations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "content_md": {
+            "title": "Content Md",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "feedback": {
+            "$ref": "#/components/schemas/Feedback"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "path": {
+            "items": {
+              "$ref": "#/components/schemas/PathEntry"
+            },
+            "title": "Path",
+            "type": "array"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MessageRole"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Source"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/MessageStatus"
+          },
+          "superseded_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded By"
+          }
+        },
+        "required": [
+          "id",
+          "branch_id",
+          "role",
+          "status",
+          "content_md",
+          "source",
+          "path",
+          "provenance",
+          "citations",
+          "feedback",
+          "superseded_by",
+          "created_at"
+        ],
+        "title": "MessageOut",
+        "type": "object"
+      },
+      "MessageRole": {
+        "enum": [
+          "user",
+          "assistant"
+        ],
+        "title": "MessageRole",
+        "type": "string"
+      },
+      "MessageStatus": {
+        "enum": [
+          "streaming",
+          "done",
+          "aborted",
+          "failed"
+        ],
+        "title": "MessageStatus",
+        "type": "string"
+      },
+      "NodeCreate": {
+        "properties": {
+          "origin": {
+            "$ref": "#/components/schemas/NodeOrigin",
+            "default": "user"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Default: last among siblings",
+            "title": "Position"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "NodeCreate",
+        "type": "object"
+      },
+      "NodeDeleted": {
+        "properties": {
+          "proposed_entry_ids": {
+            "description": "KB entries proposed by this node's answers; kept in steward unless deprecated",
+            "items": {
+              "type": "string"
+            },
+            "title": "Proposed Entry Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "proposed_entry_ids"
+        ],
+        "title": "NodeDeleted",
+        "type": "object"
+      },
+      "NodeDetail": {
+        "properties": {
+          "branches": {
+            "items": {
+              "$ref": "#/components/schemas/BranchOut"
+            },
+            "title": "Branches",
+            "type": "array"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "node": {
+            "$ref": "#/components/schemas/NodeOut"
+          }
+        },
+        "required": [
+          "node",
+          "explanation",
+          "branches"
+        ],
+        "title": "NodeDetail",
+        "type": "object"
+      },
+      "NodeMove": {
+        "properties": {
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "position": {
+            "minimum": 0.0,
+            "title": "Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "parent_id",
+          "position"
+        ],
+        "title": "NodeMove",
+        "type": "object"
+      },
+      "NodeOrigin": {
+        "enum": [
+          "outline",
+          "user",
+          "prerequisite",
+          "question"
+        ],
+        "title": "NodeOrigin",
+        "type": "string"
+      },
+      "NodeOut": {
+        "properties": {
+          "depth": {
+            "title": "Depth",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/NodeOrigin"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NodeStatus"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "parent_id",
+          "position",
+          "depth",
+          "title",
+          "summary",
+          "status",
+          "origin"
+        ],
+        "title": "NodeOut",
+        "type": "object"
+      },
+      "NodePatch": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "NodePatch",
+        "type": "object"
+      },
+      "NodeStatus": {
+        "enum": [
+          "not_started",
+          "learning",
+          "done"
+        ],
+        "title": "NodeStatus",
+        "type": "string"
+      },
+      "OutlineStatus": {
+        "enum": [
+          "draft",
+          "confirmed"
+        ],
+        "title": "OutlineStatus",
+        "type": "string"
+      },
+      "PathEntry": {
+        "description": "One step of a message's `path` (design §6.2): stored on it and sent as SSE `path`.",
+        "properties": {
+          "detail": {
+            "additionalProperties": true,
+            "title": "Detail",
+            "type": "object"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "step": {
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step",
+          "status"
+        ],
+        "title": "PathEntry",
+        "type": "object"
+      },
+      "Source": {
+        "enum": [
+          "kb",
+          "llm",
+          "web",
+          "mixed"
+        ],
+        "title": "Source",
+        "type": "string"
+      },
+      "TopicCreate": {
+        "properties": {
+          "goal": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
+          "instructions": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instructions"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language",
+            "default": "zh"
+          },
+          "level": {
+            "$ref": "#/components/schemas/Level",
+            "default": "beginner"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "TopicCreate",
+        "type": "object"
+      },
+      "TopicDetail": {
+        "properties": {
+          "nodes": {
+            "description": "The outline, flat: parent_id and position give the tree",
+            "items": {
+              "$ref": "#/components/schemas/NodeOut"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "topic": {
+            "$ref": "#/components/schemas/TopicOut"
+          }
+        },
+        "required": [
+          "topic",
+          "nodes"
+        ],
+        "title": "TopicDetail",
+        "type": "object"
+      },
+      "TopicOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "explain_mode": {
+            "$ref": "#/components/schemas/ExplainMode"
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "instructions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instructions"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "outline_status": {
+            "$ref": "#/components/schemas/OutlineStatus"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TopicStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "goal",
+          "level",
+          "language",
+          "instructions",
+          "status",
+          "outline_status",
+          "explain_mode",
+          "created_at"
+        ],
+        "title": "TopicOut",
+        "type": "object"
+      },
+      "TopicPatch": {
+        "properties": {
+          "goal": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
+          "instructions": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instructions"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Language"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Level"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TopicStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "title": "TopicPatch",
+        "type": "object"
+      },
+      "TopicStatus": {
+        "enum": [
+          "active",
+          "archived"
+        ],
+        "title": "TopicStatus",
+        "type": "string"
+      },
+      "TopicSummary": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "explain_mode": {
+            "$ref": "#/components/schemas/ExplainMode"
+          },
+          "goal": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Goal"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "instructions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instructions"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "level": {
+            "$ref": "#/components/schemas/Level"
+          },
+          "nodes": {
+            "title": "Nodes",
+            "type": "integer"
+          },
+          "outline_status": {
+            "$ref": "#/components/schemas/OutlineStatus"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TopicStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "goal",
+          "level",
+          "language",
+          "instructions",
+          "status",
+          "outline_status",
+          "explain_mode",
+          "created_at",
+          "nodes",
+          "done"
+        ],
+        "title": "TopicSummary",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -123,6 +1095,880 @@
         "summary": "Health",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/v1/branches/{branch_id}": {
+      "get": {
+        "operationId": "get_branch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Branch",
+        "tags": [
+          "branches"
+        ]
+      },
+      "patch": {
+        "operationId": "update_branch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BranchPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Branch",
+        "tags": [
+          "branches"
+        ]
+      }
+    },
+    "/v1/branches/{branch_id}/ask": {
+      "post": {
+        "description": "Answers a question in the branch through the ask pipeline (design §6), streamed.",
+        "operationId": "ask",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "path, token…, done (or error)"
+          },
+          "409": {
+            "description": "already answered or another answer is streaming on the branch"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ask",
+        "tags": [
+          "branches"
+        ]
+      }
+    },
+    "/v1/branches/{branch_id}/messages/latest": {
+      "get": {
+        "description": "After a dropped stream: the newest answer in any state (design §9).",
+        "operationId": "latest_message",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "branch_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Branch Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Latest Message",
+        "tags": [
+          "branches"
+        ]
+      }
+    },
+    "/v1/nodes/{node_id}": {
+      "delete": {
+        "operationId": "delete_node",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Node",
+        "tags": [
+          "nodes"
+        ]
+      },
+      "get": {
+        "operationId": "get_node",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Node",
+        "tags": [
+          "nodes"
+        ]
+      },
+      "patch": {
+        "operationId": "update_node",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodePatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Node",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/v1/nodes/{node_id}/branches": {
+      "post": {
+        "operationId": "create_branch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BranchCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Branch",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/v1/nodes/{node_id}/explain": {
+      "post": {
+        "description": "Explains the node with `node.explain` on its main branch (design §5.2), streamed.",
+        "operationId": "explain_node",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "path, token…, done (or error)"
+          },
+          "409": {
+            "description": "already answered or another answer is streaming on the branch"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Explain Node",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/v1/nodes/{node_id}/move": {
+      "post": {
+        "operationId": "move_node",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Node",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
+    "/v1/topics": {
+      "get": {
+        "operationId": "list_topics",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TopicSummary"
+                  },
+                  "title": "Response List Topics",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Topics",
+        "tags": [
+          "topics"
+        ]
+      },
+      "post": {
+        "operationId": "create_topic",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopicCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Topic",
+        "tags": [
+          "topics"
+        ]
+      }
+    },
+    "/v1/topics/{topic_id}": {
+      "get": {
+        "operationId": "get_topic",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Topic",
+        "tags": [
+          "topics"
+        ]
+      },
+      "patch": {
+        "operationId": "update_topic",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopicPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Topic",
+        "tags": [
+          "topics"
+        ]
+      }
+    },
+    "/v1/topics/{topic_id}/nodes": {
+      "post": {
+        "operationId": "add_node",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Node",
+        "tags": [
+          "topics"
+        ]
+      }
+    },
+    "/v1/topics/{topic_id}/outline": {
+      "post": {
+        "description": "Generates the outline with `outline.generate` (SSE: `outline`, then `done`; `error` on a\nfailed role). 409 when the outline is confirmed, or exists and `replace` is false.",
+        "operationId": "generate_outline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "replace",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Replace",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "outline, then done"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Generate Outline",
+        "tags": [
+          "topics"
+        ]
+      }
+    },
+    "/v1/topics/{topic_id}/outline/confirm": {
+      "post": {
+        "operationId": "confirm_outline",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmOutline"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Confirm Outline",
+        "tags": [
+          "topics"
         ]
       }
     }

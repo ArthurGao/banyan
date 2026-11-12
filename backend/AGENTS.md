@@ -15,8 +15,9 @@ src/banyan/
   api/errors.py      domain errors → RFC 7807 problem responses
   services/          TopicService, OutlineService, AskService, NotesService, ExportService,
                      MemoryService, UsageService, JobService (enqueue only)
-  pipeline/          ask pipeline steps: scope, freshness, retrieve, judge, answer, writeback (design §6);
-                     sources.py wraps retrieved and fetched text in per-call nonce tags (design §6.2)
+  pipeline/          ask pipeline (design §6): steps.py (the seven steps), run.py (orchestrator), record.py
+                     (the commit point), events.py (what a stream reports), sources.py (per-call nonce
+                     tags around retrieved and fetched text, §6.2), types.py (step I/O, Deps)
   llm/               role layer: roles.py (Role enum, resolve), client.py (Pydantic AI wrapper),
                      fakes.py (FakeLLM), usage.py (token accounting)
   tools/             agent tools: kb_search, web_search, web_fetch; search/ providers (Protocol + adapters)

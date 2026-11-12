@@ -38,10 +38,10 @@ If a change must contradict the design, update the design in the same change and
 
 ## Current stage
 
-**B0 — scaffold — in close-out** (backend, contract spike and CI written; the frontend scaffold is
-another session's; CI runs on the first push). B1 next. Track the checklist in design §12; ticked items are done
-and verified. Open questions are in design §13 — do not decide them silently; ask, or implement the
-conservative option behind config.
+**B1 — learning tree — backend done** (API, role layer, pipeline skeleton, SSE; the screens are another
+session's, and B1's phone/iPad acceptance closes with them). B2 next. Track the checklist in design §12;
+ticked items are done and verified. Open questions are in design §13 — do not decide them silently; ask,
+or implement the conservative option behind config.
 
 ## Non-negotiable rules
 

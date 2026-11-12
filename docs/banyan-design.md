@@ -182,7 +182,7 @@ usage_log
   topic_id, message_id (nullable), generation_run_id (nullable), role, provider, model
   attempt int                 -- 同一 role 调用的第几次尝试（结构化输出校验失败重试 = 新的一行）
   input_tokens, output_tokens -- provider 未返回时为 null
-  path_kind, ok bool, error_kind (nullable: timeout|provider|validation|budget), latency_ms
+  path_kind, ok bool, error_kind (nullable: timeout|provider|validation|budget|aborted), latency_ms
 
 jobs
   kind (node_explain|collection_ensure|kb_propose|kb_feedback|kb_deprecate|notes_update|episode_submit|export_render)
@@ -372,17 +372,20 @@ AskRequest:
 | `notes.update` | 更新节点笔记（结构化） | 中 |
 | `kb.draft_entry` | 把问答整理为知识条目 | 便宜 |
 
-配置示例（`BANYAN_ROLES` 或 `roles.yaml`）：
+配置（`BANYAN_ROLES_FILE` 指向的 YAML，模板 `backend/roles.example.yaml`；B1 实现）。`kind` 目前支持 `anthropic`、`openai`、
+`openai_compatible`（DeepSeek、Kimi、Ollama、llm-gateway 都走它，只差 `base_url`）；需要时再加 `google`。`models` 是能力表（§7.2）：
 
 ```yaml
 providers:
   anthropic: {kind: anthropic, api_key_env: ANTHROPIC_API_KEY}
   openai:    {kind: openai, api_key_env: OPENAI_API_KEY}
-  gemini:    {kind: google, api_key_env: GEMINI_API_KEY}
-  deepseek:  {kind: deepseek, api_key_env: DEEPSEEK_API_KEY}
+  deepseek:  {kind: openai_compatible, base_url: https://api.deepseek.com, api_key_env: DEEPSEEK_API_KEY}
   kimi:      {kind: openai_compatible, base_url: https://api.moonshot.ai/v1, api_key_env: MOONSHOT_API_KEY}
   ollama:    {kind: openai_compatible, base_url: http://127.0.0.1:11434/v1}
   gateway:   {kind: openai_compatible, base_url: http://127.0.0.1:<port>/v1}   # llm-gateway，仅本机开发
+models:
+  - {provider: anthropic, name: <model>, tools: true, structured: true, context: 200000}
+  - {provider: ollama, name: qwen3:8b, tools: false, structured: true, context: 32000}
 roles:
   outline.generate:   anthropic/<model>
   answer.compose:     anthropic/<model>
@@ -392,7 +395,10 @@ roles:
   notes.update:       openai/<model>
 ```
 
-模型名一律来自配置，代码中不出现。provider `kind` 与 Pydantic AI 的对应关系以锁定版本的文档为准（context7）。
+模型名一律来自配置，代码中不出现。provider `kind` 与 Pydantic AI 的对应关系以锁定版本的文档为准（context7；B1 锁定 `pydantic-ai-slim==2.63.0`）。
+
+B1 实现要点：Pydantic AI 自带的输出重试关掉（`retries={"output": 0}`），由 role 层自己重试一次，每次尝试一行 usage；失败尝试的 token 取自
+`capture_run_messages`。测试与 `BANYAN_FAKES=1` 用 FakeLLM（Pydantic AI 的 `FunctionModel`），所以走的是真实的 role 层。
 
 ### 7.2 规则
 
@@ -464,7 +470,7 @@ Fetcher
 
 | Banyan | Steward |
 |---|---|
-| Topic | collection（每个主题一个，`review_policy` 见 §8.1） |
+| Topic | collection（每个主题一个，名字 `topic-<topic_id>`，检索按名字匹配；`review_policy` 见 §8.1） |
 | 节点问答、讲解 | KB entry。tags：`app:banyan`、`topic:<topic_id>`、`node:<node_id>`、`source:<kb\|llm\|web\|mixed>`、`author:ai`、`origin_message:<message_id>`；web 来源另加 `url:<url>`（每个 URL 一个 tag）、`fetched_at:<ISO date>`、`valid_to:<ISO date>`。`content` 正文末尾附一行 Markdown 来源列表，供人阅读与 MCP 消费者（§8.6） |
 | web 来源的有效期 | **v1 由 Banyan 自己过滤**：检索结果中 `valid_to:` tag 已过期的条目不作为知识计入 judge，并入队 `kb_deprecate`。真正的有效期窗口需要 steward 在 `EntryCreate` 增加 `valid_to`（steward 变更需求，§13） |
 | 支线对话 | episode（`POST /v1/episodes`，`user_id=BANYAN_USER_ID`、`agent_id="banyan"`、`session_id=<branch_id>`）；学习状态信号（§5.5）作为最后一条 `role=system` 消息附在 `messages` 里，因为 `EpisodeCreate` 没有 context 字段 |
@@ -536,7 +542,7 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/topics` | 创建主题（同步，返回 topic；同时入队 steward collection 创建，失败不阻塞） |
-| POST | `/topics/{id}/outline` | 生成或重新生成大纲（SSE：`outline` 事件后 `done`）；主题已有节点时需 `replace=true`；`outline_status=confirmed` 后拒绝（409） |
+| POST | `/topics/{id}/outline` | 生成或重新生成大纲（SSE：`path`（step=outline）、`outline`、`done`）；主题已有节点时需 `?replace=true`；`outline_status=confirmed` 后拒绝（409） |
 | POST | `/topics/{id}/outline/confirm` | 确认大纲，带 `explain_mode`；`all` 时同时返回估算，不立即开始 |
 | GET | `/topics/{id}/generation/estimate` | 全部生成的估算：待生成节点数、每节点 token 与依据、总量 |
 | POST | `/topics/{id}/generation-runs` | 开始全部生成，带 `token_budget`；同一主题同时只能有一个未结束的 run（409） |
@@ -546,7 +552,8 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 | GET | `/topics/{id}` | 主题详情 + 大纲树 + 节点状态 |
 | PATCH | `/topics/{id}` | 修改标题、目标、水平、指令、状态 |
 | POST | `/topics/{id}/nodes` | 新增节点（可指定 parent、position、origin） |
-| PATCH | `/nodes/{id}` | 重命名、移动、改状态 |
+| PATCH | `/nodes/{id}` | 重命名、改 summary、改状态 |
+| POST | `/nodes/{id}/move` | 移动到 `parent_id` 下的 `position`（带子树；不能移到自己下面；超过 3 层 422） |
 | DELETE | `/nodes/{id}` | 删除节点（§4 一致性规则） |
 | POST | `/nodes/{id}/explain` | 生成讲解（SSE） |
 | GET | `/nodes/{id}` | 节点详情：讲解、支线列表、笔记版本 |
@@ -585,10 +592,10 @@ error     {code, message}
 
 **提交点与中断语义**
 
-- 开始流式输出前先在同一事务写入 user 消息和一条 `status=streaming` 的 assistant 消息占位（无内容），返回其 `message_id` 作为流的第一个 `path` 事件的 `detail.message_id`。
+- 开始流式输出前先在同一事务写入 user 消息和一条 `status=streaming` 的 assistant 消息占位（无内容），返回其 `message_id` 作为流的第一个 `path` 事件（step=scope）的 `detail.message_id`。这一步在打开流之前完成，所以 409、404 是普通 HTTP 错误，不是 `error` 事件。讲解（explain）没有 user 消息，占位写在节点的 `main` 分支上（没有就建）。
 - 作答完成后，在**一个事务**里写入 assistant 消息内容、`usage_log`、`jobs`，然后发 `done`。`done` 之前客户端看到的 token 都是未提交内容。
 - 客户端断开（含用户点"停止"）→ 服务端取消进行中的 LLM 调用，占位消息改为 `status=aborted`，已发生的 provider 调用照常记 `usage_log`（`ok=false, error_kind=aborted`），不入队任何 job。
-- 客户端断开但服务端在断开前已到达提交点 → 消息照常提交；客户端重连后用 `GET /branches/{id}/messages/latest` 取回。
+- 客户端断开但服务端在断开前已到达提交点 → 消息照常提交（提交一旦开始就做完，B1 实现并测试了提交中途断开）；客户端重连后用 `GET /branches/{id}/messages/latest` 取回。
 - 同一支线同一时刻只允许一个 `streaming` 消息；重复 POST 返回 409。
 - role 失败 → `error` 事件后关闭流，占位消息改为 `status=failed`（前端显示"重试"）。因此 `messages` 增加 `status (streaming|done|aborted|failed)`，列表与导出只取 `done`。
 
@@ -675,15 +682,30 @@ error     {code, message}
 
 ### B1 — 学习树（pipeline 骨架，无 RAG）
 
-- [ ] 数据模型 topics / nodes / branches / messages（含 status、retrieval / entry id 列）/ usage_log / jobs（含租约）
-- [ ] role 层：Role 枚举、配置解析、Pydantic AI 封装、FakeLLM、usage 记录（每次尝试一行）、能力表启动校验、按阶段的必需 role
-- [ ] 对话式入口：创建主题（同步）、固定澄清问题、`POST /topics/{id}/outline`（`outline.generate`，SSE）、大纲 CRUD 与排序、确认大纲；本阶段只开放 `explain_mode=manual`
-- [ ] **ask pipeline 骨架**：scope / freshness / retrieve / judge / answer / writeback / record 七步都存在，
+- [x] 数据模型 topics / nodes / branches / messages（含 status、retrieval / entry id 列）/ usage_log / jobs（含租约）
+- [x] role 层：Role 枚举、配置解析、Pydantic AI 封装、FakeLLM、usage 记录（每次尝试一行）、能力表启动校验、按阶段的必需 role
+- [x] 对话式入口（后端）：创建主题（同步）、固定澄清问题、`POST /topics/{id}/outline`（`outline.generate`，SSE）、大纲 CRUD 与排序、确认大纲；本阶段只开放 `explain_mode=manual`
+- [x] **ask pipeline 骨架**：scope / freshness / retrieve / judge / answer / writeback / record 七步都存在，
       `StewardClient` 用 `FakeSteward` 且返回空（路径表第 6 行），judge 因而被跳过；compose 暂无工具。
       这样 B3 只替换 `FakeSteward` 与补 judge 测试，不重写流程
-- [ ] SSE：占位消息、提交点、中断与 409 语义（§9）；`messages/latest`
-- [ ] 前端：主题列表、大纲树、节点页、支线页，三种布局；SSE 客户端（去重、中断后取回）
+- [x] SSE：占位消息、提交点、中断与 409 语义（§9）；`messages/latest`
+- [ ] 前端：主题列表、大纲树、节点页、支线页，三种布局；SSE 客户端（去重、中断后取回）——另一个会话负责（owner 2026-11-12）；固定澄清问题在前端
 - 验收：手机与 iPad 上可完成“建主题 → 讲解 → 支线追问”；所有调用有 usage 记录；路径表第 6、7 行测试通过
+- **收尾记录（2026-11-12，后端）**：
+  - 验收：路径表第 6、7、8 行测试通过（`tests/pipeline/test_path_table.py`）；每次 provider 尝试一行 usage（成功、校验重试、超时、
+    失败、中断都有测试）；`BANYAN_FAKES=1` 的真服务器上用 curl 走完建主题 → 大纲 → 确认 → 讲解 → 追问，客户端 0.6 秒挂断后回答为
+    `aborted`、compose 记一行 `aborted` usage、没有任务。手机与 iPad 上的完整流程等另一个会话的前端。后端 146 个测试 + contract spike 全绿。
+  - 实现中改了设计：usage `error_kind` 加 `aborted`；roles 配置加能力表 `models`，`kind` 先支持 anthropic / openai / openai_compatible；
+    collection 名 `topic-<topic_id>`；移动节点单独 `POST /nodes/{id}/move`；SSE 第一个 `path` 事件（scope）带 `message_id`，409 在开流前；
+    `AskBody.allow_web` 等 B4 再加；开发用 `BANYAN_FAKES=1` 与 `BANYAN_FAKE_DELAY_S`。
+  - /simplify（四个角度）：role 层成为完整边界（除取消外的一切失败都是 `RoleError`，每次尝试的记录收进一个小类）；提交点改为数据库
+    compare-and-set（`WHERE status='streaming'`），由跑回答的任务负责所有结局；path 只存一份（`Deps.path`），三种同形类型合一；
+    `StewardReader` 取代两份抄来的 Protocol；`collection_name` 进 `banyan.steward`，语言名进 `Language`；`get_or_404`、补丁写法统一、
+    测试共用 helper。没做：门控式 fake（计时测试稳定）、health 的 `fake` 状态拆开（前端需要看见）、事件模块挪出 pipeline（收益小）；
+    效率项记在 B3 / B4 清单。
+  - Codex：三条成立并修复（先写失败的测试）——重新生成大纲时用户确认了，生成结果仍会覆盖已确认的大纲（写入时锁 topic 行并复查，
+    确认也加锁）；生成大纲时客户端断开丢了这次调用的 usage（取消时先存再抛）；`messages/latest` 时间相同时不确定（加 `id` 次序）。
+    修复小、不涉及 §4/§6/§8，没有再跑 Codex。
 
 ### B2 — 任务运行时、讲解生成方式、笔记与导出
 
@@ -702,6 +724,7 @@ error     {code, message}
 
 ### B3 — steward 集成（KB 优先）
 
+- [ ] 效率（B1 /simplify 记下）：`freshness` 与 `retrieve` 互不依赖，并发执行（配了 `judge.freshness` 后省一次往返的首 token 延迟）；三个检索范围能否合并成一次或并发，先查 steward 的 retrieve 是否支持
 - [ ] StewardClient：HTTP 实现（基于 B0 spike）、FakeSteward 补齐 tags 过滤 / review_policy / 幂等、契约测试 `-m steward` 覆盖 §8.3 每个方法
 - [ ] prompt 注入防护（§6.2，`pipeline/sources.py`）
 - [ ] 主题 ↔ collection（建主题入队、失败重试）；pipeline 的 scope（三级范围）/ retrieve（降级规则）/ judge / answer.from_kb / writeback；`proposed_entry_ids` 回写
@@ -713,6 +736,7 @@ error     {code, message}
 ### B4 — 联网
 
 - [ ] SearchProvider Protocol + 默认 adapter + FakeSearch；Fetcher（正文抽取、截断、URL 白名单、出站防护 §7.3）
+- [ ] role 层按 role 预建 Agent（带工具后构造变重；B1 每次调用新建，开销可忽略）
 - [ ] `answer.compose` / `node.explain` 变为 agent loop（kb_search / web_search / web_fetch，预算；`allow_web=false` 不挂 web 工具）
 - [ ] `judge.freshness`；web 来源条目的 `url:` / `fetched_at:` / `valid_to:` tags；检索时过滤过期条目并入队 `kb_deprecate`
 - [ ] 生成大纲时联网一次，写入 `topics.research_sources`；节点讲解把这份资料放进初始上下文，`web_fetch` 白名单包含这些 URL

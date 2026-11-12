@@ -6,21 +6,36 @@ test never depends on the developer's `.env` (KB testing-and-ci §14). Without t
 there is no default database (KB testing-and-ci §8).
 """
 
+import asyncio
+import json
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import httpx
 import pytest
+from alembic import command
 from fastapi import FastAPI
 from pydantic import Field
+from pydantic_ai import models
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.schema import DropSchema
 
+from banyan.cli import alembic_config
 from banyan.config import DEFAULT_DB_SCHEMA, TEST_SCHEMA_SUFFIX, Settings
-from banyan.storage.db import engine_scope
+from banyan.llm.fakes import FakeLLM
+from banyan.main import create_app
+from banyan.models import Base
+from banyan.steward import FakeSteward
+from banyan.storage.db import engine_scope, session_factory
 
 TEST_SCHEMA = DEFAULT_DB_SCHEMA + TEST_SCHEMA_SUFFIX
+
+# No test reaches a real model (AGENTS.md rule 8): Pydantic AI refuses any non-test model.
+models.ALLOW_MODEL_REQUESTS = False
 
 
 class _TestTarget(BaseSettings):
@@ -38,18 +53,27 @@ def require_test_database_url() -> str:
     return url
 
 
+Sessions = async_sessionmaker[AsyncSession]
+
+API_TOKEN = "test-token-0123456789"
+
+
 def settings_for(url: str) -> Settings:
     """App settings for tests: no env file, schema `banyan_test` (which the validator refuses for
     real deployments, hence the copy)."""
-    return Settings(_env_file=None, database_url=url).model_copy(update={"db_schema": TEST_SCHEMA})
+    settings = Settings(_env_file=None, database_url=url, api_token=API_TOKEN)  # type: ignore[arg-type]
+    return settings.model_copy(update={"db_schema": TEST_SCHEMA})
 
 
 @asynccontextmanager
-async def app_client(app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
-    """The app with its lifespan running, called in-process."""
+async def app_client(app: FastAPI, *, token: str | None = None) -> AsyncIterator[httpx.AsyncClient]:
+    """The app with its lifespan running, called in-process; `token` goes in as a Bearer token."""
+    headers = {"Authorization": f"Bearer {token}"} if token else None
     async with (
         app.router.lifespan_context(app),
-        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as client,
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://t", headers=headers
+        ) as client,
     ):
         yield client
 
@@ -65,6 +89,74 @@ async def pg_url() -> AsyncIterator[str]:
     await _drop_test_schema(url)
     yield url
     await _drop_test_schema(url)
+
+
+@pytest.fixture
+async def migrated_url(pg_url: str) -> str:
+    """The test schema migrated to head."""
+    await asyncio.to_thread(command.upgrade, alembic_config(pg_url, TEST_SCHEMA), "head")
+    return pg_url
+
+
+@pytest.fixture
+def fake_llm() -> FakeLLM:
+    """Scripted per test with `fake_llm.script(role, ...)`; an unscripted call fails."""
+    return FakeLLM()
+
+
+@pytest.fixture
+async def api(migrated_url: str, fake_llm: FakeLLM) -> AsyncIterator[httpx.AsyncClient]:
+    """The app on the migrated test schema with fakes, authenticated."""
+    async with client_for(migrated_url, fake_llm, token=API_TOKEN) as client:
+        yield client
+
+
+@asynccontextmanager
+async def client_for(
+    url: str, llm: FakeLLM | None = None, *, token: str | None = None
+) -> AsyncIterator[httpx.AsyncClient]:
+    """An in-process client of the app on `url`, with FakeSteward and `llm` (default: FakeLLM)."""
+    app = create_app(settings_for(url), steward=FakeSteward(), llm=(llm or FakeLLM()).client())
+    async with app_client(app, token=token) as client:
+        yield client
+
+
+@pytest.fixture
+async def db(migrated_url: str) -> AsyncIterator[Sessions]:
+    """Sessions on the migrated test schema, for arranging and checking rows directly."""
+    async with engine_scope(migrated_url, schema=TEST_SCHEMA) as engine:
+        yield session_factory(engine)
+
+
+async def rows[M: Base](db: Sessions, model: type[M]) -> list[M]:
+    async with db() as s:
+        return list(await s.scalars(select(model).order_by(model.created_at)))
+
+
+async def create_topic(api: httpx.AsyncClient, **fields: Any) -> dict[str, Any]:
+    response = await api.post("/v1/topics", json={"title": "Kubernetes", **fields})
+    assert response.status_code == 201, response.text
+    body: dict[str, Any] = response.json()
+    return body
+
+
+async def create_node(
+    api: httpx.AsyncClient, topic_id: str, title: str, **fields: Any
+) -> dict[str, Any]:
+    response = await api.post(f"/v1/topics/{topic_id}/nodes", json={"title": title, **fields})
+    assert response.status_code == 201, response.text
+    body: dict[str, Any] = response.json()
+    return body
+
+
+def sse_events(body: str) -> list[tuple[str, dict[str, Any]]]:
+    """(event, data) pairs of an SSE body; pings and comments are skipped."""
+    events: list[tuple[str, dict[str, Any]]] = []
+    for block in body.replace("\r\n", "\n").split("\n\n"):
+        fields = dict(line.split(": ", 1) for line in block.splitlines() if ": " in line)
+        if "event" in fields:
+            events.append((fields["event"], json.loads(fields["data"])))
+    return events
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:

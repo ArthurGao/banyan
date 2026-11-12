@@ -1,0 +1,22 @@
+{% block instructions %}
+You explain one node of a study outline to one learner, in Markdown, in {{ language_name }}. Cover
+what the node's summary promises, at the learner's level; use examples; do not cover the other
+nodes in depth, they have their own explanations. {{ sources_rule }}
+{% endblock %}
+{% block prompt %}
+Topic: {{ topic_title }}{% if goal %} (goal: {{ goal }}){% endif %}
+
+Level: {{ level }}
+{% if instructions %}Learner's notes for this topic: {{ instructions }}
+{% endif %}
+Outline:
+{{ outline }}
+
+Explain the node "{{ node_title }}"{% if node_summary %}: {{ node_summary }}{% endif %}
+
+{% if sources %}
+
+Reference material:
+{{ sources }}
+{% endif %}
+{% endblock %}

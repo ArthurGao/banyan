@@ -3,6 +3,7 @@
 Secrets come only from here (AGENTS.md rule 10).
 """
 
+from pathlib import Path
 from typing import Any, Self
 from urllib.parse import urlsplit
 
@@ -19,6 +20,20 @@ class Settings(BaseSettings):
     # Required on purpose: a default would point a forgotten environment at some database.
     database_url: str
     db_schema: str = Field(default=DEFAULT_DB_SCHEMA, pattern=r"^[a-z_][a-z0-9_]{0,62}$")
+
+    # The single user's API token (design §9): every /v1 request carries it as a Bearer token.
+    api_token: SecretStr = Field(min_length=16)
+    # The constant user passed to steward (AGENTS.md rule 11).
+    user_id: str = Field(default="owner", min_length=1, max_length=200)
+
+    # LLM roles (design §7): the YAML that maps roles to models. Required unless `fakes` is on.
+    roles_file: Path | None = None
+    role_timeout_s: float = Field(default=60.0, gt=0)
+    # Development and frontend e2e only: every role answers from FakeLLM, steward is FakeSteward.
+    fakes: bool = False
+    fake_delay_s: float = Field(default=0.0, ge=0, le=5)  # between fake stream chunks
+    # Branch history sent with a question, in estimated tokens (design §6.5).
+    history_budget: int = Field(default=2000, gt=0)
 
     # llm-steward (design §8.1): all three or none. Unset URL means steward is not configured and
     # /health says so. The API key has scopes read+write; the review key (scope review) is used

@@ -6,7 +6,12 @@ from contextlib import asynccontextmanager
 
 from sqlalchemy import text
 from sqlalchemy.engine import URL, make_url
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.schema import CreateSchema
 
 # Fail fast when the database is unreachable instead of hanging a health check.
@@ -40,6 +45,11 @@ async def engine_scope(database_url: str | URL, *, schema: str) -> AsyncIterator
 async def prepare_schema(engine: AsyncEngine, schema: str) -> None:
     async with engine.begin() as conn:
         await conn.execute(CreateSchema(schema, if_not_exists=True))
+
+
+def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """Objects stay readable after commit, so services can return what they just wrote."""
+    return async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def ping(engine: AsyncEngine) -> None:

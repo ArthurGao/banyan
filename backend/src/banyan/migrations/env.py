@@ -29,9 +29,17 @@ def _target() -> tuple[str, str]:
     return url, schema
 
 
+def _not_the_version_table(name: str | None, type_: str, parent_names: object) -> bool:
+    # Autogenerate sees alembic_version in our schema as an unknown table and would drop it.
+    return not (type_ == "table" and name == "alembic_version")
+
+
 def _run(connection: Connection, schema: str) -> None:
     context.configure(
-        connection=connection, target_metadata=target_metadata, version_table_schema=schema
+        connection=connection,
+        target_metadata=target_metadata,
+        version_table_schema=schema,
+        include_name=_not_the_version_table,
     )
     with context.begin_transaction():
         context.run_migrations()

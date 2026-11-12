@@ -14,6 +14,12 @@ dependencies = [
     "alembic>=1.14",
     "httpx>=0.27",
     "typer>=0.15",
+    "jinja2>=3.1",
+    "pyyaml>=6.0",
+    "sse-starlette>=3.0",
+    # Model access behind the role layer (banyan.llm only). Pinned exactly: provider behaviour and
+    # usage reporting change between releases.
+    "pydantic-ai-slim[openai,anthropic]==2.63.0",
     # Response models generated from steward's OpenAPI; used only inside banyan.steward.
     "llm-steward-client",
 ]
@@ -29,6 +35,7 @@ dev = [
     "mypy>=1.13",
     "import-linter>=2.1",
     "pre-commit>=4.0",
+    "types-pyyaml>=6.0",
 ]
 # `uv sync --group contract`: llm-steward itself, to run the contract tests on its embedded mode
 # (`-m steward`). Heavy and never needed to run Banyan.
@@ -123,6 +130,27 @@ source_modules = [
     "banyan.jobs",
 ]
 forbidden_modules = ["llm_steward_client"]
+# Direct imports only: going through banyan.steward / banyan.llm is the point.
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "Only banyan.llm calls models (AGENTS.md rule 4: no vendor SDK in business code)"
+type = "forbidden"
+source_modules = [
+    "banyan.api",
+    "banyan.worker",
+    "banyan.services",
+    "banyan.pipeline",
+    "banyan.export",
+    "banyan.tools",
+    "banyan.steward",
+    "banyan.models",
+    "banyan.storage",
+    "banyan.jobs",
+]
+forbidden_modules = ["pydantic_ai", "openai", "anthropic"]
+# Direct imports only: going through banyan.steward / banyan.llm is the point.
+allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
 name = "The job runtime is standalone (design §2): no Banyan business code"

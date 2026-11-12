@@ -9,8 +9,10 @@ from banyan.steward.client import (
     RetrievalResult,
     StewardClient,
     StewardHealth,
+    StewardReader,
     StewardRejected,
     StewardUnavailable,
+    collection_name,
 )
 from banyan.steward.fake import FakeSteward
 from banyan.steward.http import HttpStewardClient
@@ -23,6 +25,8 @@ __all__ = [
     "RetrievalResult",
     "StewardClient",
     "StewardHealth",
+    "StewardReader",
     "StewardRejected",
     "StewardUnavailable",
+    "collection_name",
 ]
