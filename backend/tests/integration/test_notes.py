@@ -11,7 +11,7 @@ from banyan.llm.fakes import FakeLLM
 from banyan.models import Job, JobKind, JobStatus, NodeNotes, UsageLog
 from banyan.services import notes
 from banyan.worker.context import WorkerContext
-from tests.conftest import Sessions, create_node, create_topic, rows, run_next, worker_ctx
+from tests.conftest import NOT_FRESH, Sessions, explained_node, rows, run_next, worker_ctx
 
 EXPLANATION = "Services give pods a stable virtual IP."
 
@@ -25,20 +25,14 @@ async def run_notes_job(c: WorkerContext) -> str | None:
     return await run_next(c, [JobKind.NOTES_UPDATE.value])
 
 
-async def explained_node(api: httpx.AsyncClient, fake_llm: FakeLLM) -> str:
-    fake_llm.script(Role.JUDGE_FRESHNESS, '{"needs_web": false}')
-    fake_llm.script(Role.NODE_EXPLAIN, EXPLANATION)
-    topic = await create_topic(api)
-    node = await create_node(api, topic["id"], "Services")
-    await api.post(f"/v1/nodes/{node['id']}/explain")
-    node_id: str = node["id"]
-    return node_id
+async def explained(api: httpx.AsyncClient, fake_llm: FakeLLM) -> str:
+    return (await explained_node(api, fake_llm, EXPLANATION))[1]
 
 
 async def test_an_explanation_becomes_the_first_notes(
     api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions, migrated_url: str
 ) -> None:
-    node_id = await explained_node(api, fake_llm)
+    node_id = await explained(api, fake_llm)
     writer = FakeLLM({Role.NOTES_UPDATE: [notes_json(key_points=["Stable virtual IP"])]})
     assert (await api.get(f"/v1/nodes/{node_id}/notes")).json()["version"] == 0
 
@@ -55,7 +49,7 @@ async def test_an_explanation_becomes_the_first_notes(
 async def test_a_closed_branch_is_merged_in_once(
     api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions, migrated_url: str
 ) -> None:
-    node_id = await explained_node(api, fake_llm)
+    node_id = await explained(api, fake_llm)
     writer = FakeLLM({Role.NOTES_UPDATE: [
         notes_json(key_points=["Stable virtual IP"]),
         notes_json(key_points=["NodePort exposes a port"],
@@ -63,7 +57,7 @@ async def test_a_closed_branch_is_merged_in_once(
     ]})  # fmt: skip
     c = worker_ctx(db, migrated_url, writer)
     await run_notes_job(c)
-    fake_llm.script(Role.JUDGE_FRESHNESS, '{"needs_web": false}')
+    fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
     fake_llm.script(Role.ANSWER_COMPOSE, "Use a NodePort.")
     branch = (await api.post(f"/v1/nodes/{node_id}/branches", json={"title": "Outside"})).json()
     await api.post(f"/v1/branches/{branch['id']}/ask", json={"question": "From outside?"})
@@ -87,7 +81,7 @@ async def test_a_closed_branch_is_merged_in_once(
 async def test_closing_a_branch_queues_one_notes_job_per_node(
     api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions
 ) -> None:
-    node_id = await explained_node(api, fake_llm)  # the explanation already queued one
+    node_id = await explained(api, fake_llm)  # the explanation already queued one
     for title in ("A", "B"):
         branch = (await api.post(f"/v1/nodes/{node_id}/branches", json={"title": title})).json()
         await api.patch(f"/v1/branches/{branch['id']}", json={"closed": True})
@@ -99,7 +93,7 @@ async def test_closing_a_branch_queues_one_notes_job_per_node(
 async def test_a_lost_version_race_waits_and_runs_again(
     api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions, migrated_url: str
 ) -> None:
-    node_id = await explained_node(api, fake_llm)
+    node_id = await explained(api, fake_llm)
 
     def bump(_: str) -> str:
         return notes_json(key_points=["mine"])
@@ -132,7 +126,7 @@ async def test_a_lost_version_race_waits_and_runs_again(
 async def test_a_failed_notes_role_keeps_its_usage_and_retries(
     api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions, migrated_url: str
 ) -> None:
-    node_id = await explained_node(api, fake_llm)
+    node_id = await explained(api, fake_llm)
     writer = FakeLLM({Role.NOTES_UPDATE: [ConnectionError("down")]})
     assert await run_notes_job(worker_ctx(db, migrated_url, writer)) == "pending"
     usage = [(u.role, u.ok) for u in await rows(db, UsageLog) if u.role == "notes.update"]
@@ -143,7 +137,7 @@ async def test_a_failed_notes_role_keeps_its_usage_and_retries(
 async def test_an_update_racing_another_update_does_not_overwrite_it(
     api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions, migrated_url: str
 ) -> None:
-    node_id = await explained_node(api, fake_llm)
+    node_id = await explained(api, fake_llm)
     async with db() as s:  # notes at version 1 that have not taken in the explanation yet
         s.add(NodeNotes(node_id=uuid.UUID(node_id), version=1, content={}, incorporated={}))
         await s.commit()
@@ -171,7 +165,7 @@ async def test_an_update_racing_another_update_does_not_overwrite_it(
 async def test_turns_added_after_reopening_a_branch_reach_the_notes(
     api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions, migrated_url: str
 ) -> None:
-    node_id = await explained_node(api, fake_llm)
+    node_id = await explained(api, fake_llm)
     writer = FakeLLM({Role.NOTES_UPDATE: [notes_json(), notes_json(), notes_json()]})
     c = worker_ctx(db, migrated_url, writer)
     await run_notes_job(c)  # the explanation
@@ -181,7 +175,7 @@ async def test_turns_added_after_reopening_a_branch_reach_the_notes(
         ("First question?", "First answer."),
         ("Later question?", "Later answer."),
     ):
-        fake_llm.script(Role.JUDGE_FRESHNESS, '{"needs_web": false}')
+        fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
         fake_llm.script(Role.ANSWER_COMPOSE, answer)
         await api.patch(url, json={"closed": False})
         await api.post(f"{url}/ask", json={"question": question})

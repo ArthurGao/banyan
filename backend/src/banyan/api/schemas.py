@@ -218,3 +218,25 @@ class ExportOut(_Out):
     error: str | None
     notes_versions: dict[str, int] = Field(description="node id -> notes version used")
     created_at: datetime
+
+
+class FeedbackIn(BaseModel):
+    feedback: Literal["good", "wrong", "incomplete"]
+    note: str | None = Field(default=None, max_length=2000)
+    reanswer: bool = Field(
+        default=True, description="wrong/incomplete: stream a new answer (SSE) instead of JSON"
+    )
+
+
+class TopicUsageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    topic_id: uuid.UUID
+    title: str
+    answers: int
+    kb_answers: int
+    hit_rate: float = Field(description="Share of committed answers that came from the KB")
+    tokens_by_role: dict[str, int]
+    estimated_tokens_saved: int = Field(
+        description="KB answers times this topic's average strong-model answer (design §11.2)"
+    )

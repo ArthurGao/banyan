@@ -15,6 +15,7 @@ from banyan.models import (
     Message,
     MessageRole,
     MessageStatus,
+    Node,
     enqueue,
 )
 from banyan.services.lookup import get_or_404
@@ -66,6 +67,43 @@ async def update_branch(
     return branch
 
 
+# An answer that was answered again (design §6.3) is kept for display but is no longer current:
+# it is never fed back to a model as history or notes material.
+CURRENT = Message.superseded_by.is_(None)
+
+
+async def get_answer(s: AsyncSession, message_id: uuid.UUID) -> Message:
+    """A committed assistant answer, or NotFound."""
+    message = await s.get(Message, message_id)
+    if (
+        message is None
+        or message.role != MessageRole.ASSISTANT
+        or message.status != MessageStatus.DONE
+    ):
+        raise NotFound(f"message {message_id} is not a committed answer")
+    return message
+
+
+def explain_question(node: Node) -> str:
+    """What an explanation answers (design §5.2): the node itself."""
+    return f'Explain "{node.title}"'
+
+
+async def current_messages(s: AsyncSession, branch_id: uuid.UUID) -> list[Message]:
+    """The branch's committed, current messages: what a model sees as its history."""
+    return [m for m in await done_messages(s, branch_id) if m.superseded_by is None]
+
+
+async def question_for(s: AsyncSession, answer: Message) -> str | None:
+    """The question an answer replied to: the node itself on the main branch, otherwise the
+    last current user message before it."""
+    branch = await get_branch(s, answer.branch_id)
+    if branch.kind == BranchKind.MAIN:
+        return explain_question(await get_node(s, branch.node_id))
+    earlier = [m for m in await current_messages(s, branch.id) if m.created_at < answer.created_at]
+    return earlier[-1].content_md if earlier and earlier[-1].role == MessageRole.USER else None
+
+
 async def done_messages(s: AsyncSession, branch_id: uuid.UUID) -> list[Message]:
     """What a branch shows and exports: committed messages only (design §9)."""
     rows = await s.scalars(
@@ -95,10 +133,16 @@ MAIN_ANSWER = (Branch.kind == BranchKind.MAIN, Message.role == MessageRole.ASSIS
 
 
 async def explanation(s: AsyncSession, node_id: uuid.UUID) -> Message | None:
+    """The current explanation: a re-answered one is replaced by its successor (design §6.3)."""
     return await s.scalar(
         select(Message)
         .join(Branch, Branch.id == Message.branch_id)
-        .where(Branch.node_id == node_id, Message.status == MessageStatus.DONE, *MAIN_ANSWER)
+        .where(
+            Branch.node_id == node_id,
+            Message.status == MessageStatus.DONE,
+            CURRENT,
+            *MAIN_ANSWER,
+        )
         .order_by(Message.created_at, Message.id)
         .limit(1)
     )

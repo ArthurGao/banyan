@@ -300,6 +300,42 @@
         "title": "Feedback",
         "type": "string"
       },
+      "FeedbackIn": {
+        "properties": {
+          "feedback": {
+            "enum": [
+              "good",
+              "wrong",
+              "incomplete"
+            ],
+            "title": "Feedback",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reanswer": {
+            "default": true,
+            "description": "wrong/incomplete: stream a new answer (SSE) instead of JSON",
+            "title": "Reanswer",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "feedback"
+        ],
+        "title": "FeedbackIn",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1404,6 +1440,55 @@
         "title": "TopicSummary",
         "type": "object"
       },
+      "TopicUsageOut": {
+        "properties": {
+          "answers": {
+            "title": "Answers",
+            "type": "integer"
+          },
+          "estimated_tokens_saved": {
+            "description": "KB answers times this topic's average strong-model answer (design §11.2)",
+            "title": "Estimated Tokens Saved",
+            "type": "integer"
+          },
+          "hit_rate": {
+            "description": "Share of committed answers that came from the KB",
+            "title": "Hit Rate",
+            "type": "number"
+          },
+          "kb_answers": {
+            "title": "Kb Answers",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tokens_by_role": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Tokens By Role",
+            "type": "object"
+          },
+          "topic_id": {
+            "format": "uuid",
+            "title": "Topic Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_id",
+          "title",
+          "answers",
+          "kb_answers",
+          "hit_rate",
+          "tokens_by_role",
+          "estimated_tokens_saved"
+        ],
+        "title": "TopicUsageOut",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1925,8 +2010,72 @@
         ]
       }
     },
+    "/v1/messages/{message_id}/feedback": {
+      "post": {
+        "description": "good / wrong / incomplete. Wrong and incomplete answer again (force_llm) unless\n`reanswer` is false; the new answer supersedes this one when it commits.",
+        "operationId": "give_feedback",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageOut"
+                }
+              },
+              "text/event-stream": {}
+            },
+            "description": "The answer as JSON, or the new answer's SSE (wrong/incomplete)"
+          },
+          "409": {
+            "description": "the answer was already answered again, or one is streaming"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Give Feedback",
+        "tags": [
+          "feedback"
+        ]
+      }
+    },
     "/v1/nodes/{node_id}": {
       "delete": {
+        "description": "`deprecate_entries=true` also retires the KB entries the node's answers proposed (§4).",
         "operationId": "delete_node",
         "parameters": [
           {
@@ -1937,6 +2086,16 @@
               "format": "uuid",
               "title": "Node Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deprecate_entries",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Deprecate Entries",
+              "type": "boolean"
             }
           }
         ],
@@ -2791,6 +2950,67 @@
         "summary": "Confirm Outline",
         "tags": [
           "topics"
+        ]
+      }
+    },
+    "/v1/usage": {
+      "get": {
+        "description": "Per topic: KB hit rate, tokens by role, estimated tokens saved (design §11.2).",
+        "operationId": "usage",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "topic_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TopicUsageOut"
+                  },
+                  "title": "Response Usage",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Usage",
+        "tags": [
+          "topics",
+          "usage"
         ]
       }
     }

@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     fake_delay_s: float = Field(default=0.0, ge=0, le=5)  # between fake stream chunks
     # Branch history sent with a question, in estimated tokens (design §6.5).
     history_budget: int = Field(default=2000, gt=0)
+    # A KB hit: `judge.sufficiency` says sufficient with at least this coverage (design §6.5).
+    judge_threshold: float = Field(default=0.7, ge=0, le=1)
+    judge_threshold_explain: float = Field(default=0.85, ge=0, le=1)
 
     # Jobs and the worker (design §4, §5.1.1).
     run_worker: bool = (

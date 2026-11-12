@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from banyan.errors import Unprocessable
 from banyan.ids import uuid7
-from banyan.models import Branch, Message, Node, NodeOrigin
+from banyan.models import Branch, JobKind, Message, Node, NodeOrigin, enqueue
 from banyan.models.tables import MAX_DEPTH
 from banyan.services.lookup import get_or_404
 
@@ -98,9 +98,12 @@ async def move_node(
     return node
 
 
-async def delete_node(s: AsyncSession, node_id: uuid.UUID) -> list[str]:
+async def delete_node(
+    s: AsyncSession, node_id: uuid.UUID, *, deprecate_entries: bool = False
+) -> list[str]:
     """Deletes the node, its subtree, branches and messages. Returns the KB entries their answers
-    proposed: they stay in steward unless the user asks to deprecate them (design §4)."""
+    proposed: they stay in steward unless the user asks to deprecate them too (design §4), which
+    is queued in the same transaction."""
     node = await get_node(s, node_id)
     nodes = await topic_nodes(s, node.topic_id)
     siblings = _siblings(nodes)
@@ -112,6 +115,11 @@ async def delete_node(s: AsyncSession, node_id: uuid.UUID) -> list[str]:
     )
     entry_ids = sorted({e for ids in proposed for e in ids})
     remaining = [n for n in siblings[node.parent_id] if n is not node]
+    if deprecate_entries and entry_ids:
+        await enqueue(
+            s, JobKind.KB_DEPRECATE, key=f"kb_deprecate:node:{node_id}",
+            payload={"entry_ids": entry_ids},
+        )  # fmt: skip
     await s.delete(node)  # the database cascades to children, branches and messages
     _renumber(remaining)
     await s.commit()

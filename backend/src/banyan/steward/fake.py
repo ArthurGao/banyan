@@ -1,7 +1,10 @@
 """In-memory steward for tests and `BANYAN_FAKES=1` (AGENTS.md rule 8): the StewardClient surface
-with the rules Banyan relies on — collections by name, writes replayed per Idempotency-Key."""
+with the rules Banyan relies on — collections matched by name, tags AND, only live entries
+retrievable, high risk held as a candidate, writes replayed per Idempotency-Key. Entries are
+retrievable at once (real steward syncs within seconds, design §8.4)."""
 
 import uuid
+from dataclasses import dataclass
 
 from banyan.steward.client import (
     ProposedEntry,
@@ -9,8 +12,18 @@ from banyan.steward.client import (
     RetrievalResult,
     Risk,
     StewardHealth,
+    StewardRejected,
     StewardUnavailable,
 )
+
+
+@dataclass
+class FakeEntry:
+    collection_id: str
+    title: str
+    content: str
+    tags: list[str]
+    status: str = "active"
 
 
 class FakeSteward:
@@ -28,7 +41,7 @@ class FakeSteward:
         self.unavailable = unavailable
         self.retrievals: list[dict[str, object]] = []
         self.collections: dict[str, str] = {}  # name -> id
-        self.entries: dict[str, dict[str, object]] = {}
+        self.entries: dict[str, FakeEntry] = {}
         self.feedback_given: list[tuple[str, str, bool]] = []
         self._replies: dict[str, object] = {}  # Idempotency-Key -> first answer
 
@@ -49,9 +62,27 @@ class FakeSteward:
     ) -> RetrievalResult:
         self.retrievals.append({"query": query, "collections": collections, "tags": tags})
         self._check()
+        # Steward's rules (B0 spike): collections by NAME, tags all required, only live entries.
+        names = self.collections
+        wanted = None if collections is None else {names[c] for c in collections if c in names}
+        stored = [
+            RetrievalItem(
+                id=entry_id,
+                kind="entry",
+                status="active",
+                score=0.5,
+                title=e.title,
+                content=e.content,
+            )
+            for entry_id, e in self.entries.items()
+            if e.status == "active"
+            and (wanted is None or e.collection_id in wanted)
+            and set(tags or []) <= set(e.tags)
+        ]
+        items = [i for i in self.items if include_memory or i.kind != "memory"] + stored
         return RetrievalResult(
             retrieval_id=str(uuid.uuid4()),
-            items=[i for i in self.items if include_memory or i.kind != "memory"],
+            items=items[: top_k or len(items)],
             context=None,
             degraded=list(self.degraded),
         )
@@ -74,12 +105,12 @@ class FakeSteward:
     ) -> ProposedEntry:
         self._check()
         if idempotency_key not in self._replies:
-            entry_id = str(uuid.uuid4())
-            self.entries[entry_id] = {
-                "collection_id": collection_id, "title": title, "content": content, "tags": tags,
-                "status": "active",
-            }  # fmt: skip
-            self._replies[idempotency_key] = ProposedEntry(entry_id=entry_id, candidate_id=None)
+            if risk_level == "high":  # waits for a reviewer (design §8.1): a candidate only
+                self._replies[idempotency_key] = ProposedEntry(None, str(uuid.uuid4()))
+            else:
+                entry_id = str(uuid.uuid4())
+                self.entries[entry_id] = FakeEntry(collection_id, title, content, tags)
+                self._replies[idempotency_key] = ProposedEntry(entry_id, None)
         reply = self._replies[idempotency_key]
         assert isinstance(reply, ProposedEntry)
         return reply
@@ -95,7 +126,9 @@ class FakeSteward:
 
     async def deprecate_entry(self, entry_id: str, *, idempotency_key: str) -> None:
         self._check()
-        self.entries[entry_id]["status"] = "deprecated"
+        if entry_id not in self.entries:
+            raise StewardRejected(404, f"no entry {entry_id}")
+        self.entries[entry_id].status = "deprecated"
 
     def _check(self) -> None:
         if self.unavailable:

@@ -34,7 +34,7 @@ from banyan.models import (
 from banyan.pipeline import record
 from banyan.pipeline.events import DoneEvent, ErrorEvent, Event
 from banyan.pipeline.run import run_ask
-from banyan.pipeline.types import AskInput, Deps, Mode, Turn
+from banyan.pipeline.types import CHARS_PER_TOKEN, AskInput, Deps, Mode, Turn
 from banyan.services import branches, outline, topics
 from banyan.steward import StewardReader, collection_name
 
@@ -49,7 +49,6 @@ class AnswerStreaming(Conflict):
     pass
 
 
-CHARS_PER_TOKEN = 4  # a rough estimate, enough to keep prompts inside a budget
 EXPLANATION_CONTEXT_CHARS = 3000
 
 
@@ -63,6 +62,8 @@ class Runtime:
     # The sweeper fails `streaming` answers untouched for this long; a running one touches its
     # placeholder well within it, so only abandoned ones are swept (design §9).
     stale_s: float = 600.0
+    judge_threshold: float = 0.7
+    judge_threshold_explain: float = 0.85
 
     @classmethod
     def from_settings(
@@ -74,7 +75,7 @@ class Runtime:
     ) -> "Runtime":
         return cls(
             llm, steward, sessions, settings.user_id, settings.history_budget,
-            settings.stream_stale_s,
+            settings.stream_stale_s, settings.judge_threshold, settings.judge_threshold_explain,
         )  # fmt: skip
 
 
@@ -89,13 +90,7 @@ async def start_explain(s: AsyncSession, node_id: uuid.UUID) -> AskInput:
         await s.flush()
     elif await branches.explanation(s, node_id) is not None:
         raise AlreadyExplained("the node is already explained")
-    placeholder = await _placeholder(s, main.id)
-    topic = await topics.get_topic(s, node.topic_id)
-    nodes = await outline.topic_nodes(s, node.topic_id)
-    return await _input(
-        s, topic, node, main.id, placeholder, mode="explain",
-        question=f'Explain "{node.title}"', outline_text=outline.outline_text(nodes),
-    )  # fmt: skip
+    return await _explain_input(s, node, main.id)
 
 
 async def start_ask(
@@ -105,9 +100,7 @@ async def start_ask(
     if branch.closed_at is not None:
         raise Conflict("the branch is closed")
     node = await outline.get_node(s, branch.node_id)
-    topic = await topics.get_topic(s, node.topic_id)
-    history = _trim(await branches.done_messages(s, branch_id), history_budget)
-    explained = await branches.explanation(s, node.id)
+    history = await branches.current_messages(s, branch_id)
     s.add(
         Message(
             branch_id=branch_id,
@@ -116,9 +109,51 @@ async def start_ask(
             content_md=question,
         )
     )
+    return await _ask_input(s, node, branch_id, question, _trim(history, history_budget))
+
+
+async def start_reanswer(
+    s: AsyncSession, message_id: uuid.UUID, *, history_budget: int
+) -> AskInput:
+    """A new answer to the same question after "wrong"/"incomplete" (design §6.3): `force_llm`,
+    in the same branch; the old answer is superseded when the new one commits."""
+    old = await branches.get_answer(s, message_id)
+    if old.superseded_by is not None:
+        raise Conflict("this answer was already answered again")
+    branch = await branches.get_branch(s, old.branch_id)
+    node = await outline.get_node(s, branch.node_id)
+    if branch.kind == BranchKind.MAIN:
+        inp = await _explain_input(s, node, branch.id)
+    else:
+        question = await branches.question_for(s, old)
+        if question is None:
+            raise Conflict("no question to answer again")
+        earlier = [
+            m for m in await branches.current_messages(s, branch.id)
+            if m.created_at < old.created_at
+        ][:-1]  # fmt: skip
+        inp = await _ask_input(s, node, branch.id, question, _trim(earlier, history_budget))
+    return inp.model_copy(update={"force_llm": True, "supersedes": old.id})
+
+
+async def _explain_input(s: AsyncSession, node: Node, branch_id: uuid.UUID) -> AskInput:
     placeholder = await _placeholder(s, branch_id)
+    topic = await topics.get_topic(s, node.topic_id)
+    nodes = await outline.topic_nodes(s, node.topic_id)
     return await _input(
-        s, topic, node, branch_id, placeholder, mode="ask", question=question, history=history,
+        s, topic, node, placeholder, mode="explain", question=branches.explain_question(node),
+        outline_text=outline.outline_text(nodes),
+    )  # fmt: skip
+
+
+async def _ask_input(
+    s: AsyncSession, node: Node, branch_id: uuid.UUID, question: str, history: list[Turn]
+) -> AskInput:
+    explained = await branches.explanation(s, node.id)
+    placeholder = await _placeholder(s, branch_id)
+    topic = await topics.get_topic(s, node.topic_id)
+    return await _input(
+        s, topic, node, placeholder, mode="ask", question=question, history=history,
         explanation=explained.content_md[:EXPLANATION_CONTEXT_CHARS] if explained else None,
     )  # fmt: skip
 
@@ -127,7 +162,10 @@ async def stream_answer(inp: AskInput, rt: Runtime) -> AsyncIterator[Event]:
     """Runs the pipeline in a task and forwards its events. The task owns every outcome; leaving
     the stream cancels it (design §9)."""
     queue: asyncio.Queue[Event | None] = asyncio.Queue()
-    deps = Deps(llm=rt.llm, steward=rt.steward, emit=queue.put, user_id=rt.user_id)
+    deps = Deps(
+        llm=rt.llm, steward=rt.steward, emit=queue.put, user_id=rt.user_id,
+        judge_threshold=rt.judge_threshold, judge_threshold_explain=rt.judge_threshold_explain,
+    )  # fmt: skip
     task = asyncio.create_task(_answer(inp, rt, deps, queue))
     try:
         while (event := await queue.get()) is not None:
@@ -210,7 +248,6 @@ async def _input(
     s: AsyncSession,
     topic: Topic,
     node: Node,
-    branch_id: uuid.UUID,
     message_id: uuid.UUID,
     *,
     mode: Mode,

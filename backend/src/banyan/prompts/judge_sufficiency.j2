@@ -1,0 +1,15 @@
+{% block instructions %}
+You judge whether the reference material alone is enough to {% if mode == "explain" %}explain the
+node well: it must cover the points its summary promises{% else %}answer the question well{% endif %}.
+Report sufficient (true only if nothing important is missing), coverage (0 to 1: the share of what a
+good answer needs that the material contains) and missing (short phrases for what is not there).
+Judge only; do not answer. {{ sources_rule }}
+{% endblock %}
+{% block prompt %}
+{% if mode == "explain" %}Node summary: {{ node_summary }}
+{% endif %}
+Question: {{ question }}
+
+Reference material:
+{{ sources }}
+{% endblock %}

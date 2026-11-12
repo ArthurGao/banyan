@@ -215,8 +215,10 @@ async def test_a_cap_holds_under_concurrent_claims(db: Sessions) -> None:
             await s.commit()
         for i in range(6):
             await add(db, f"n{round_}-{i}", explain)
+        # A long lease: under load the claimers wait on the lock, and a lease that expired
+        # meanwhile would rightly stop counting toward the cap.
         got = await asyncio.gather(
-            *(queue(db, f"w{i}").claim([explain], {explain: 2}) for i in range(10))
+            *(queue(db, f"w{i}", lease_s=60).claim([explain], {explain: 2}) for i in range(10))
         )
         assert len([c for c in got if c is not None]) == 2
 

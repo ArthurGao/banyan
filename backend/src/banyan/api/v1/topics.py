@@ -14,8 +14,9 @@ from banyan.api.schemas import (
     TopicOut,
     TopicPatch,
     TopicSummary,
+    TopicUsageOut,
 )
-from banyan.services import generation, outline, topics
+from banyan.services import generation, outline, topics, usage_stats
 
 router = APIRouter(tags=["topics"])
 
@@ -74,3 +75,9 @@ async def add_node(topic_id: uuid.UUID, body: NodeCreate, s: Session) -> NodeOut
     await topics.get_topic(s, topic_id)
     node = await outline.add_node(s, topic_id, **body.model_dump())
     return NodeOut.model_validate(node)
+
+
+@router.get("/usage", tags=["usage"])
+async def usage(s: Session, topic_id: uuid.UUID | None = None) -> list[TopicUsageOut]:
+    """Per topic: KB hit rate, tokens by role, estimated tokens saved (design §11.2)."""
+    return [TopicUsageOut.model_validate(u) for u in await usage_stats.topic_usage(s, topic_id)]

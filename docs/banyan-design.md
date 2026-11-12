@@ -301,7 +301,11 @@ AskRequest:
    降级规则：steward 连接失败、超时、非 2xx，或响应 `degraded` 包含 `"kb"` → 本次 ask 视为 `retrieve: unavailable`，跳过 judge，直接进入 compose，上下文中只保留已拿到的 memory（若有）。`degraded` 只含 `"memory"` 不算降级。
 4. **judge**（`judge.sufficiency`，便宜模型）：输入问题与检索结果，输出 `{sufficient: bool, coverage: 0..1, missing: [..]}`。命中条件：`sufficient` 且 `coverage ≥ 阈值`（提问 `BANYAN_JUDGE_THRESHOLD`，讲解 `BANYAN_JUDGE_THRESHOLD_EXPLAIN`，§5.2）。**跳过** judge 的情况：`force_llm`、`needs_web`、检索降级、检索到的知识条目为 0。
 5. **answer**：
-   - 命中 → `answer.from_kb`（便宜模型）：只用检索内容组织答案，必须引用条目；`source=kb`。
+   - 命中 → `answer.from_kb`（便宜模型）：只用检索内容组织答案，必须引用条目；`source=kb`。检索到的条目在 prompt 里标成 `S1…Sn`
+     （记忆标 `M1…`，只作上下文），答案用 `[S1]` 引用；代码把出现的标号映射回条目，写入 `citations`（entry_id、item_id、
+     retrieval_id；steward 的 `document` 类结果只有 item_id，没有 entry_id）与 `cited_entry_ids`，并在答案完成后、writeback 之前逐条发 SSE `citation`。**一条有效引用都没有 → 当作失败答案（第 7 行），不改走 compose**（owner 2026-11-12 决定：没有出处的答案
+     不进笔记、不进 KB）。未命中时 judge 给出的 `missing` 放进 compose / node.explain 的 prompt。B3 起 freshness 与 retrieve 并发，三个检索范围也并发、
+     按近到远合并去重、截到 `top_k`，合并后的总量也不超过 `BANYAN_CONTEXT_BUDGET`（每个范围向 steward 各要一份完整预算）。
    - 未命中或跳过 judge → `answer.compose`（`mode=explain` 时为 `node.explain`；强模型，agent loop）：工具 `kb_search`，以及 `allow_web=true` 时的 `web_search`、`web_fetch`；检索结果与 `missing` 作为初始上下文；`max_steps`、`max_tokens` 受预算限制。`source`：未调用 web 工具 → `llm`；调用了 web 且答案主要来自 web → `web`；两者兼有 → `mixed`（由 compose 的结构化输出自报，代码校验：声明 `web`/`mixed` 时必须至少有一个 web citation，否则降为 `llm`）。
    - `needs_web` 且 `allow_web=false`：仍走 compose（无 web 工具），`path.freshness.detail = "needs_web_but_web_disabled"`，SSE `done` 带 `warnings: ["stale_risk"]`，前端在消息上显示"未联网，可能过时"。不拒答。
 6. **writeback**（同一事务入队）：
@@ -321,8 +325,9 @@ AskRequest:
 
 ### 6.3 反馈
 
-- `wrong` / `incomplete` → 入队 `kb_feedback`：对原消息 `steward_retrieval_ids` 中每次检索的每个被引用 item 提交 `helpful=false`（steward 反馈按 `retrieval_id + item_id`，没有按条目的反馈）。`wrong` 时另入队 `kb_deprecate`：对原消息的 `proposed_entry_ids`（本答案产生的条目）调用 steward deprecate；若该列表仍为空（`kb_propose` 尚未完成），`kb_deprecate` 任务延后重试，直到 propose 完成或进 dead。然后以 `force_llm=true` 自动重答，新消息写入同一支线，旧消息 `superseded_by` 指向新消息。
-- `good` → 对被引用 item 提交 `helpful=true`，并触发 `notes_update`。
+- `wrong` / `incomplete` → 入队 `kb_feedback`：对原消息 `steward_retrieval_ids` 中每次检索的每个被引用 item 提交 `helpful=false`（steward 反馈按 `retrieval_id + item_id`，没有按条目的反馈）。`wrong` 时若原消息已有 `proposed_entry_ids`（本答案产生的条目），另入队 `kb_deprecate` 对其调用 steward deprecate；若还没有（`kb_propose` 尚未完成），不入队：`kb_propose` 开始前看到 `wrong`（或已被重答）就不起草也不写入，写入后若发现期间被标为 `wrong`，当场 deprecate 刚写的条目。反馈与重答占位消息在同一事务提交，重答被拒（409）时反馈也不记录。然后以 `force_llm=true` 自动重答，新消息写入同一支线，旧消息 `superseded_by` 指向新消息（在新答案的提交事务里写，新答案失败则旧的不变）。
+  讲解被重答时，节点的讲解改为没被取代的那一条。同一答案已被重答过再重答返回 409。同一结论重复提交（同一答案、同一 feedback）只入队一次。
+- `good` → 对被引用 item 提交 `helpful=true`，并触发 `notes_update`。笔记材料因此包括有 good 答案的支线（即使还没关闭），按支线水位只取新轮次。
 - 只标记不重答：`POST /messages/{id}/feedback` 带 `reanswer=false`（§9）。
 
 ### 6.4 路径表（测试规格）
@@ -562,7 +567,7 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 | POST | `/topics/{id}/nodes` | 新增节点（可指定 parent、position、origin） |
 | PATCH | `/nodes/{id}` | 重命名、改 summary、改状态 |
 | POST | `/nodes/{id}/move` | 移动到 `parent_id` 下的 `position`（带子树；不能移到自己下面；超过 3 层 422） |
-| DELETE | `/nodes/{id}` | 删除节点（§4 一致性规则） |
+| DELETE | `/nodes/{id}` | 删除节点（§4 一致性规则）；`?deprecate_entries=true` 时在同一事务里入队 `kb_deprecate`（条目 id 列表） |
 | POST | `/nodes/{id}/explain` | 生成讲解（SSE） |
 | GET | `/nodes/{id}` | 节点详情：讲解、支线列表、笔记版本 |
 | POST | `/nodes/{id}/branches` | 新建支线 |
@@ -579,7 +584,7 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 | GET | `/exports/{id}` | HTML（`text/html`；`?download=true` 时作为附件）；失败的 export 返回 409 |
 | GET | `/memory/candidates` | 待确认的 KB 候选卡片（steward `awaiting_user`，§8.5） |
 | POST | `/memory/candidates/{id}` | `accept` / `reject` |
-| GET | `/usage` | 按主题 / role / 路径统计 token 与命中率 |
+| GET | `/usage` | 每个主题：已提交答案数、KB 答案数、命中率、各 role token、估算节省（KB 答案数 × 本主题强模型答案平均 token）；`?topic_id=` 只看一个 |
 | GET | `/health` | 分层健康检查（见下） |
 
 `/health` 返回 `{status: ok|degraded|down, checks: {db, steward, search, roles: {<role>: ok|unreachable}}}`。`down` 只在 DB 不可用或 role 配置不合法时出现（这两者也会阻止启动）；steward、搜索或某个模型不可达时为 `degraded`，服务仍接受请求（§6.4 第 8 行、第 7 行）。响应里不含任何密钥或 URL 中的凭据。
@@ -745,14 +750,27 @@ error     {code, message}
 
 ### B3 — steward 集成（KB 优先）
 
-- [ ] 效率（B1 /simplify 记下）：`freshness` 与 `retrieve` 互不依赖，并发执行（配了 `judge.freshness` 后省一次往返的首 token 延迟）；三个检索范围能否合并成一次或并发，先查 steward 的 retrieve 是否支持
-- [ ] StewardClient：HTTP 实现（基于 B0 spike）、FakeSteward 补齐 tags 过滤 / review_policy / 幂等、契约测试 `-m steward` 覆盖 §8.3 每个方法
-- [ ] prompt 注入防护（§6.2，`pipeline/sources.py`）
-- [ ] 主题 ↔ collection（建主题入队、失败重试）；pipeline 的 scope（三级范围）/ retrieve（降级规则）/ judge / answer.from_kb / writeback；`proposed_entry_ids` 回写
-- [ ] 路径表 §6.4 第 1、2、5、6、7、8、9、10 行的测试
-- [ ] 反馈（按 retrieval_id + item_id）、`kb_deprecate`、重答、`reanswer=false`；来源徽章与引用；删除节点时的"同时失效"提示
-- [ ] 用量页：命中率与节省估算
+- [x] 效率（B1 /simplify 记下）：`freshness` 与 `retrieve` 互不依赖，并发执行（配了 `judge.freshness` 后省一次往返的首 token 延迟）；三个检索范围能否合并成一次或并发，先查 steward 的 retrieve 是否支持
+- [x] StewardClient：HTTP 实现（基于 B0 spike）、FakeSteward 补齐 tags 过滤 / review_policy / 幂等、契约测试 `-m steward` 覆盖 §8.3 每个方法
+- [x] prompt 注入防护（§6.2，`pipeline/sources.py`；B1 已做）
+- [x] 主题 ↔ collection（建主题入队、失败重试）；pipeline 的 scope（三级范围）/ retrieve（降级规则）/ judge / answer.from_kb / writeback；`proposed_entry_ids` 回写
+- [x] 路径表 §6.4 第 1、2、5、6、7、8、9、10 行的测试
+- [x] 反馈（按 retrieval_id + item_id）、`kb_deprecate`、重答、`reanswer=false`；删除节点时的"同时失效"（后端）；来源徽章、引用与提示的界面——另一个会话
+- [x] 用量页：命中率与节省估算（`GET /v1/usage`；页面——另一个会话）
 - 验收：**低风险**样本问题第二次提问走路径 1（high 风险内容进 steward 审核队列，不在验收内）；标 wrong 后重答并使 `proposed_entry_ids` 失效；用量页显示命中率
+- **收尾记录（2026-11-12，后端）**：
+  - 验收：`tests/contract/test_kb_first_e2e.py`（`-m steward`，内嵌 steward + FakeLLM）跑完整链路：第一次提问 → `kb_propose` →
+    第二次提问走路径 1 并带引用 → 标 wrong → 重答且条目失效 → 用量页命中率。另在 `BANYAN_FAKES=1` 的服务器上用 curl 手跑一遍：
+    第二次 `source: kb`，wrong 触发重答，命中率 1/3。后端 252 个测试 + `-m steward` 全绿。`-m steward_live` 仍待 steward 起来后跑。
+  - owner 决定：`answer.from_kb` 没有任何有效引用 = 失败答案（第 7 行），不改走 compose。
+  - /simplify（两个代理）：被重答取代的答案不再进入后续提问的历史和笔记；wrong 在 propose 之前 → `kb_propose` 不起草、不写入；
+    propose 期间被标 wrong → 写入后当场失效；`kb_deprecate` 只在已有 `proposed_entry_ids` 时入队（去掉"等 propose 完成再重试"）；
+    反馈与重答占位同一事务提交（重答被拒则反馈不记）；只有一个主题时"全部主题"范围不再重复检索；答案查找、问题文本、steward 4xx →
+    Permanent 各只留一份；FakeSteward 对未知条目失效返回 404；测试 helper 合一。没做：`Citation` 保留 entry_id / item_id 两个字段（API 形状）；
+    用量统计逐主题查询（规模小）；`kb_propose` 重试时重新起草（低频）；被判 wrong 的讲解已进笔记的要点不回收（记为待办）。
+  - Codex：三条成立并修复（先写失败的测试）——三个范围各拿完整 `context_budget`，合并后可超预算（合并时按总预算截断）；设计 §9 的
+    SSE `citation` 事件没有实现（答案完成后、writeback 前逐条发出）；steward 的 `document` 结果被当成条目写进 `entry_id`（只有 entry
+    才有 entry_id）。修复涉及 §6，对修复再跑了一次 Codex：没有发现问题。
 
 ### B4 — 联网
 

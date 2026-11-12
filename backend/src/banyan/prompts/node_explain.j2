@@ -12,6 +12,10 @@ Level: {{ level }}
 Outline:
 {{ outline }}
 
+{% if missing %}
+The knowledge base covers part of this already; it is missing: {{ missing | join("; ") }}.
+
+{% endif %}
 Explain the node "{{ node_title }}"{% if node_summary %}: {{ node_summary }}{% endif %}
 
 {% if sources %}

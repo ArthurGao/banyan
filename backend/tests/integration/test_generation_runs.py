@@ -32,7 +32,14 @@ from banyan.worker.context import WorkerContext
 from banyan.worker.handlers import handlers
 from banyan.worker.run import queue_for
 from banyan.worker.run import run as run_worker
-from tests.conftest import Sessions, create_node, create_topic, rows, worker_ctx
+from tests.conftest import (
+    NOT_FRESH,
+    Sessions,
+    create_node,
+    create_topic,
+    rows,
+    worker_ctx,
+)
 
 EXPLANATION = "An explanation of this node."
 
@@ -153,7 +160,7 @@ async def test_a_run_stops_at_its_budget_and_continues_when_it_grows(
     api: httpx.AsyncClient, db: Sessions, migrated_url: str, fake_llm: FakeLLM
 ) -> None:
     llm = explain_only()
-    fake_llm.script(Role.JUDGE_FRESHNESS, '{"needs_web": false}')
+    fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
     fake_llm.script(Role.NODE_EXPLAIN, EXPLANATION)
     topic_id, nodes = await outline(api, 6, "all")
     # One explanation first: its usage becomes the per-node estimate (history).
@@ -290,7 +297,7 @@ async def test_a_job_waits_while_the_node_is_explained_interactively(
 async def test_a_job_for_an_explained_node_does_nothing(
     api: httpx.AsyncClient, db: Sessions, migrated_url: str, fake_llm: FakeLLM
 ) -> None:
-    fake_llm.script(Role.JUDGE_FRESHNESS, '{"needs_web": false}')
+    fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
     fake_llm.script(Role.NODE_EXPLAIN, EXPLANATION)
     _, nodes = await outline(api, 1, "manual")
     await api.post(f"/v1/nodes/{nodes[0]}/explain")

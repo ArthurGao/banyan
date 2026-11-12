@@ -134,6 +134,16 @@ def demo_answers(role: Role, prompt: str) -> str:
                 "branch_highlights": [],
             }
         )
+    if role == Role.JUDGE_SUFFICIENCY:
+        # The demo answers from the KB whenever there is any knowledge to answer from.
+        has_sources = "<source-" in prompt
+        return json.dumps({"sufficient": has_sources, "coverage": 0.9 if has_sources else 0.0})
+    if role == Role.ANSWER_FROM_KB:
+        return "**Fake answer from the knowledge base** (BANYAN_FAKES=1) [S1]."
+    if role == Role.KB_DRAFT_ENTRY:
+        return json.dumps(
+            {"title": "Fake entry", "content": prompt[-500:] or "fake", "risk_level": "low"}
+        )
     if role == Role.JUDGE_FRESHNESS:
         return json.dumps({"needs_web": False, "reason": "fake model"})
     return (

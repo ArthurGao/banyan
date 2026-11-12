@@ -38,6 +38,7 @@ async def done(
             content_md=result.answer.content, source=result.answer.source,
             provenance=",".join(result.answer.roles),
             steward_retrieval_ids=result.retrieval_ids, cited_entry_ids=result.cited_entry_ids,
+            citations=[c.model_dump(exclude_none=True) for c in result.answer.citations],
         )  # fmt: skip
         if not committed:
             return False
@@ -49,6 +50,13 @@ async def done(
                 key=job.idempotency_key,
                 payload=job.payload,
                 dedupe_key=job.dedupe_key,
+            )
+        if inp.supersedes is not None:
+            # In the same commit as the new answer: the old one is replaced only if this lands.
+            await s.execute(
+                update(Message)
+                .where(Message.id == inp.supersedes)
+                .values(superseded_by=inp.message_id)
             )
         if inp.mode == "explain":
             # Opening an explanation starts the node (design §5.5).

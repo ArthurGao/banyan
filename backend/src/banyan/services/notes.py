@@ -10,12 +10,12 @@ import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from banyan.llm import CallContext, Role, RoleClient, UsageCollector
-from banyan.models import Branch, BranchKind, Message, MessageStatus, NodeNotes
+from banyan.models import Branch, BranchKind, Feedback, Message, MessageStatus, NodeNotes
 from banyan.pipeline.record import add_usage
 from banyan.pipeline.sources import SourceText, wrap
 from banyan.prompts import render
@@ -136,11 +136,15 @@ async def _save(
     return bool(getattr(result, "rowcount", 0))
 
 
+_marked_good = select(Message.branch_id).where(Message.feedback == Feedback.GOOD, branches.CURRENT)
+
+
 async def _material(
     s: AsyncSession, node_id: uuid.UUID, seen: Incorporated
 ) -> tuple[list[SourceText], Incorporated]:
     """What the notes do not include yet, and the watermarks once it is in: the explanation (by
-    message id) and, per closed question branch, the turns after the last one taken in. A branch
+    message id) and, per closed (or marked-good) question branch, the turns after the last one
+    taken in. A branch
     reopened, continued and closed again brings only its new turns."""
     material: list[SourceText] = []
     marks: dict[str, str] = dict(seen.get("branches", {}))
@@ -154,8 +158,10 @@ async def _material(
         .where(
             Branch.node_id == node_id,
             Branch.kind == BranchKind.QUESTION,
-            Branch.closed_at.is_not(None),
+            # A finished branch, or one where the learner marked an answer good (design §5.4).
+            or_(Branch.closed_at.is_not(None), Branch.id.in_(_marked_good)),
             Message.status == MessageStatus.DONE,
+            branches.CURRENT,
         )
         .order_by(Branch.created_at, Message.created_at, Message.id)
     )

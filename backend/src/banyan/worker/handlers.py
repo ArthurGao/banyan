@@ -2,13 +2,15 @@
 (kb_propose, kb_feedback, kb_deprecate: B3; episode_submit: B5)."""
 
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import partial
 
 from banyan.errors import NotFound
 from banyan.jobs import Claimed, Handler, Permanent, RetryLater
 from banyan.models import JobKind, Topic
 from banyan.pipeline.events import ErrorEvent, Event
-from banyan.services import answers, notes, runs
+from banyan.services import answers, notes, proposals, runs
 from banyan.steward import StewardRejected, collection_name
 from banyan.worker.context import WorkerContext
 
@@ -17,6 +19,7 @@ REVIEW_POLICY = {"low": "auto", "medium": "auto"}
 BUSY_RETRY_S = 15.0
 WAITING_RUN_RETRY_S = 10.0
 VERSION_RETRY_S = 1.0
+COLLECTION_RETRY_S = 30.0
 
 
 def handlers(ctx: WorkerContext) -> dict[str, Handler]:
@@ -24,8 +27,11 @@ def handlers(ctx: WorkerContext) -> dict[str, Handler]:
         JobKind.NODE_EXPLAIN: partial(node_explain, ctx),
         JobKind.NOTES_UPDATE: partial(notes_update, ctx),
     }
-    if ctx.steward is not None:
+    if ctx.steward is not None:  # the KB writes wait for steward (design §8)
         registry[JobKind.COLLECTION_ENSURE] = partial(collection_ensure, ctx)
+        registry[JobKind.KB_PROPOSE] = partial(kb_propose, ctx)
+        registry[JobKind.KB_FEEDBACK] = partial(kb_feedback, ctx)
+        registry[JobKind.KB_DEPRECATE] = partial(kb_deprecate, ctx)
     return registry
 
 
@@ -44,13 +50,11 @@ async def collection_ensure(ctx: WorkerContext, job: Claimed) -> None:
         topic = await s.get(Topic, topic_id)
         if topic is None or topic.steward_collection_id:
             return  # deleted meanwhile, or done before
-    try:
+    with _steward_rejections_final():
         collection_id = await ctx.steward.ensure_collection(
             collection_name(topic_id), review_policy=REVIEW_POLICY,
             idempotency_key=job.idempotency_key,
         )  # fmt: skip
-    except StewardRejected as exc:
-        raise Permanent(str(exc)) from exc  # replayed for 24 h under this key (design §4)
     async with ctx.sessions() as s:
         topic = await s.get(Topic, topic_id)
         if topic is not None:
@@ -96,3 +100,52 @@ async def notes_update(ctx: WorkerContext, job: Claimed) -> None:
         return  # the node was deleted
     except notes.VersionConflict as exc:
         raise RetryLater(str(exc), after_s=VERSION_RETRY_S) from exc
+
+
+async def kb_propose(ctx: WorkerContext, job: Claimed) -> None:
+    """An answer the strong model wrote goes back to the KB (design §6.2 step 6)."""
+    assert ctx.steward is not None
+    try:
+        with _steward_rejections_final():
+            await proposals.propose(
+                ctx.sessions, ctx.llm, ctx.steward, uuid.UUID(job.payload["message_id"]),
+                idempotency_key=job.idempotency_key,
+            )  # fmt: skip
+    except NotFound:
+        return
+    except proposals.CollectionNotReady as exc:
+        raise RetryLater(str(exc), after_s=COLLECTION_RETRY_S) from exc
+
+
+async def kb_feedback(ctx: WorkerContext, job: Claimed) -> None:
+    assert ctx.steward is not None
+    with _steward_rejections_final():
+        await proposals.give_feedback(
+            ctx.sessions, ctx.steward, uuid.UUID(job.payload["message_id"]),
+            helpful=bool(job.payload["helpful"]), note=job.payload.get("note"),
+            idempotency_key=job.idempotency_key,
+        )  # fmt: skip
+
+
+async def kb_deprecate(ctx: WorkerContext, job: Claimed) -> None:
+    """A wrong answer's proposed entries, or the given ones (a deleted node's)."""
+    assert ctx.steward is not None
+    with _steward_rejections_final():
+        if "entry_ids" in job.payload:
+            await proposals.deprecate(
+                ctx.steward, job.payload["entry_ids"], idempotency_key=job.idempotency_key
+            )
+        else:
+            await proposals.deprecate_proposed(
+                ctx.sessions, ctx.steward, uuid.UUID(job.payload["message_id"]),
+                idempotency_key=job.idempotency_key,
+            )  # fmt: skip
+
+
+@contextmanager
+def _steward_rejections_final() -> Iterator[None]:
+    """A steward 4xx is replayed for 24 h under the same key (design §4): retrying is useless."""
+    try:
+        yield
+    except StewardRejected as exc:
+        raise Permanent(str(exc)) from exc

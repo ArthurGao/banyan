@@ -27,6 +27,7 @@ from sqlalchemy.schema import DropSchema
 from banyan.cli import alembic_config
 from banyan.config import DEFAULT_DB_SCHEMA, TEST_SCHEMA_SUFFIX, Settings
 from banyan.jobs.runner import run_one
+from banyan.llm import Role
 from banyan.llm.fakes import FakeLLM
 from banyan.main import create_app
 from banyan.models import Base
@@ -151,6 +152,23 @@ async def create_node(
     assert response.status_code == 201, response.text
     body: dict[str, Any] = response.json()
     return body
+
+
+NOT_FRESH = '{"needs_web": false}'
+
+
+async def explained_node(
+    api: httpx.AsyncClient, fake_llm: FakeLLM, explanation: str
+) -> tuple[str, str, str]:
+    """A topic and node "Services" with a committed explanation (source llm):
+    (topic id, node id, explanation message id)."""
+    fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
+    fake_llm.script(Role.NODE_EXPLAIN, explanation)
+    topic = await create_topic(api)
+    node = await create_node(api, topic["id"], "Services")
+    await api.post(f"/v1/nodes/{node['id']}/explain")
+    message_id: str = (await api.get(f"/v1/nodes/{node['id']}")).json()["explanation"]["id"]
+    return topic["id"], node["id"], message_id
 
 
 def sse_events(body: str) -> list[tuple[str, dict[str, Any]]]:

@@ -1,0 +1,23 @@
+{% block instructions %}
+You {% if mode == "explain" %}explain a node of a study outline{% else %}answer a learner's question{% endif %}
+using only the reference material below, in Markdown, in {{ language_name }}. Cite the material you
+use with its label in square brackets right after the sentence, like [S1]; every answer cites at
+least one source. Do not add facts the material does not contain. {{ sources_rule }}
+{% endblock %}
+{% block prompt %}
+Topic: {{ topic_title }}
+Level: {{ level }}
+Node: {{ node_title }}{% if node_summary %} ({{ node_summary }}){% endif %}
+
+{% if history %}
+Earlier in this conversation:
+{% for turn in history %}
+{{ turn.role }}: {{ turn.content }}
+{% endfor %}
+
+{% endif %}
+Reference material:
+{{ sources }}
+
+Question: {{ question }}
+{% endblock %}

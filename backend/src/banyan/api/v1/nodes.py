@@ -48,8 +48,12 @@ async def move_node(node_id: uuid.UUID, body: NodeMove, s: Session) -> NodeOut:
 
 
 @router.delete("/nodes/{node_id}")
-async def delete_node(node_id: uuid.UUID, s: Session) -> NodeDeleted:
-    return NodeDeleted(proposed_entry_ids=await outline.delete_node(s, node_id))
+async def delete_node(
+    node_id: uuid.UUID, s: Session, deprecate_entries: bool = False
+) -> NodeDeleted:
+    """`deprecate_entries=true` also retires the KB entries the node's answers proposed (§4)."""
+    entries = await outline.delete_node(s, node_id, deprecate_entries=deprecate_entries)
+    return NodeDeleted(proposed_entry_ids=entries)
 
 
 @router.post("/nodes/{node_id}/branches", status_code=status.HTTP_201_CREATED)

@@ -26,5 +26,9 @@ Reference material:
 {{ sources }}
 
 {% endif %}
+{% if missing %}
+The knowledge base covers part of this already; it is missing: {{ missing | join("; ") }}.
+
+{% endif %}
 Question: {{ question }}
 {% endblock %}

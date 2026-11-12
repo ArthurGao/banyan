@@ -6,11 +6,14 @@ worker (B2) ignores the tokens.
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 from banyan.models import Node, Source
+
+if TYPE_CHECKING:
+    from banyan.pipeline.types import Citation
 
 
 class PathEntry(BaseModel):
@@ -29,6 +32,13 @@ class PathEvent:
 @dataclass(frozen=True)
 class TokenEvent:
     text: str
+
+
+@dataclass(frozen=True)
+class CitationEvent:
+    """One source the answer cites (design §9), sent once the answer is complete."""
+
+    citation: "Citation"
 
 
 @dataclass(frozen=True)
@@ -52,4 +62,4 @@ class ErrorEvent:
     message: str
 
 
-Event = PathEvent | TokenEvent | OutlineEvent | DoneEvent | ErrorEvent
+Event = PathEvent | TokenEvent | CitationEvent | OutlineEvent | DoneEvent | ErrorEvent

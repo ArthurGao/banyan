@@ -2,7 +2,7 @@
 
     path      {step, status, detail}
     token     {text}
-    citation  {kind, entry_id?, url?, title?}     (B3/B4)
+    citation  {kind, entry_id?, url?, title?}     after the answer, before done
     outline   {nodes: [...]}
     done      {message_id, source, usage: {input, output}, path, warnings}
     error     {code, message}
@@ -22,6 +22,7 @@ from sse_starlette import EventSourceResponse, ServerSentEvent
 from banyan.api.schemas import NodeOut
 from banyan.models import Source
 from banyan.pipeline.events import (
+    CitationEvent,
     DoneEvent,
     ErrorEvent,
     Event,
@@ -34,6 +35,13 @@ from banyan.pipeline.events import (
 
 class TokenData(BaseModel):
     text: str
+
+
+class CitationData(BaseModel):
+    kind: Literal["kb", "web"]
+    entry_id: str | None = None
+    url: str | None = None
+    title: str | None = None
 
 
 class OutlineData(BaseModel):
@@ -58,7 +66,7 @@ class ErrorData(BaseModel):
     message: str
 
 
-EventName = Literal["path", "token", "outline", "done", "error"]
+EventName = Literal["path", "token", "citation", "outline", "done", "error"]
 
 
 def _wire(event: Event) -> tuple[EventName, BaseModel]:
@@ -67,6 +75,11 @@ def _wire(event: Event) -> tuple[EventName, BaseModel]:
             return "path", event.entry
         case TokenEvent():
             return "token", TokenData(text=event.text)
+        case CitationEvent():
+            c = event.citation
+            return "citation", CitationData(
+                kind=c.kind, entry_id=c.entry_id, url=c.url, title=c.title
+            )
         case OutlineEvent():
             return "outline", OutlineData(nodes=[NodeOut.model_validate(n) for n in event.nodes])
         case DoneEvent():

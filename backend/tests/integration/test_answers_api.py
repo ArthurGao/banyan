@@ -19,10 +19,9 @@ from banyan.pipeline import record
 from banyan.services import answers
 from banyan.steward import FakeSteward
 from banyan.worker.sweep import sweep_stale_streams
-from tests.conftest import Sessions, create_node, create_topic, rows, sse_events
+from tests.conftest import NOT_FRESH, Sessions, create_node, create_topic, rows, sse_events
 
 EXPLANATION = "A Service gives a set of pods one stable virtual IP and DNS name."
-NOT_FRESH = '{"needs_web": false}'
 
 
 async def _node(api: httpx.AsyncClient) -> dict[str, Any]:
@@ -64,7 +63,8 @@ async def test_explaining_a_node_streams_then_commits_everything_together(
     assert message.provenance == (
         "judge.freshness:fake:fake-judge.freshness,node.explain:fake:fake-node.explain"
     )
-    assert len(message.steward_retrieval_ids) == 3
+    # node and topic scopes; with one topic the "all" scope is the topic and is not repeated
+    assert len(message.steward_retrieval_ids) == 2
     assert [(u.role, u.ok, str(u.message_id)) for u in db["usage"]] == [
         ("judge.freshness", True, message_id), ("node.explain", True, message_id),
     ]  # fmt: skip
@@ -326,16 +326,16 @@ async def test_a_long_answer_is_not_swept_as_stale_while_it_runs(
 ) -> None:
     """The sweeper fails abandoned placeholders only: a running answer keeps its own fresh."""
     node = await _node(api)
-    fake = FakeLLM({Role.JUDGE_FRESHNESS: [NOT_FRESH], Role.NODE_EXPLAIN: ["x" * 120]},
-                   delay_s=0.1)  # about a second of streaming  # fmt: skip
+    fake = FakeLLM({Role.JUDGE_FRESHNESS: [NOT_FRESH], Role.NODE_EXPLAIN: ["x" * 180]},
+                   delay_s=0.1)  # about 1.5 s of streaming  # fmt: skip
     rt = answers.Runtime(llm=fake.client(), steward=FakeSteward(), sessions=db, user_id="owner",
-                         history_budget=2000, stale_s=0.3)  # fmt: skip
+                         history_budget=2000, stale_s=0.6)  # fmt: skip
     async with rt.sessions() as s:
         inp = await answers.start_explain(s, uuid.UUID(node["id"]))
 
     async def sweep_often() -> None:
         while True:
-            await sweep_stale_streams(db, older_than_s=0.3)
+            await sweep_stale_streams(db, older_than_s=0.6)
             await asyncio.sleep(0.05)
 
     sweeper = asyncio.create_task(sweep_often())

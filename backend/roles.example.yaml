@@ -20,5 +20,8 @@ roles:
   node.explain: anthropic/<strong-model>
   answer.compose: anthropic/<strong-model>
   notes.update: deepseek/<cheap-model>  # required from B2
+  judge.sufficiency: deepseek/<cheap-model>  # required from B3
+  answer.from_kb: deepseek/<cheap-model>  # required from B3
+  kb.draft_entry: deepseek/<cheap-model>  # required from B3
   # Optional in B1 (the step records "skipped" without it), required later:
   judge.freshness: ollama/qwen3:8b

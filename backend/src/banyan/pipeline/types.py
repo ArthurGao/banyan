@@ -30,6 +30,7 @@ class AskInput(BaseModel):
     question: str
     force_llm: bool = False  # allow_web arrives with the web tools (B4)
     generation_run_id: uuid.UUID | None = None  # set by a "generate all" run (design §5.1.1)
+    supersedes: uuid.UUID | None = None  # a re-answer after "wrong"/"incomplete" (design §6.3)
     # Context, loaded by the caller
     topic_title: str
     goal: str | None
@@ -70,8 +71,13 @@ class FreshnessVerdict(BaseModel):
     reason: str = ""
 
 
+CHARS_PER_TOKEN = 4  # a rough estimate, enough to keep prompts inside a budget
+
+
 class RetrievedSource(BaseModel):
-    id: str
+    kind: Literal["entry", "document", "memory"] = "entry"  # only an entry has an entry id
+    id: str  # steward's item id (an entry's is its entry id), the `item_id` for feedback
+    retrieval_id: str  # the retrieval that returned it, the other half of feedback (design §6.3)
     title: str | None
     content: str
 
@@ -83,9 +89,28 @@ class RetrieveOut(BaseModel):
     memories: list[RetrievedSource] = Field(default_factory=list)
 
 
+class SufficiencyVerdict(BaseModel):
+    """`judge.sufficiency`'s structured output (design §6.2 step 4)."""
+
+    sufficient: bool
+    coverage: float = Field(ge=0, le=1)
+    missing: list[str] = Field(default_factory=list, max_length=20)
+
+
 class JudgeOut(BaseModel):
     hit: bool
     skipped_because: str | None = None
+    coverage: float | None = None
+    missing: list[str] = Field(default_factory=list)
+
+
+class Citation(BaseModel):
+    kind: Literal["kb", "web"]
+    entry_id: str | None = None
+    item_id: str | None = None
+    retrieval_id: str | None = None
+    url: str | None = None
+    title: str | None = None
 
 
 class AnswerOut(BaseModel):
@@ -93,6 +118,7 @@ class AnswerOut(BaseModel):
     source: Source
     roles: list[str]  # role:provider:model of every role that answered (provenance)
     warnings: list[str] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
 
 
 class JobSpec(BaseModel):
@@ -111,8 +137,12 @@ class AskResult(BaseModel):
 
     answer: AnswerOut
     retrieval_ids: list[str]
-    cited_entry_ids: list[str]
     jobs: list[JobSpec]
+
+    @property
+    def cited_entry_ids(self) -> list[str]:
+        """KB entries the answer cites; memories are context, never citations (design §6.2)."""
+        return [c.entry_id for c in self.answer.citations if c.kind == "kb" and c.entry_id]
 
 
 @dataclass
@@ -123,6 +153,8 @@ class Deps:
     user_id: str
     top_k: int = 8
     context_budget: int = 3000
+    judge_threshold: float = 0.7  # ask (design §6.5)
+    judge_threshold_explain: float = 0.85  # explain: the summary's points must be covered (§5.2)
     usage: UsageCollector = field(default_factory=UsageCollector)
     # The path so far: the orchestrator appends, and a failed or aborted answer is recorded with it.
     path: list[PathEntry] = field(default_factory=list)

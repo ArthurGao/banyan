@@ -28,7 +28,15 @@ STRUCTURED_ROLES = frozenset(
         Role.KB_DRAFT_ENTRY,
     }
 )
-# Required at startup (design §7.2): B1's three, plus notes.update from B2. Later stages add theirs.
+# Required at startup (design §7.2): each stage adds the roles it starts using.
 REQUIRED_ROLES = frozenset(
-    {Role.OUTLINE_GENERATE, Role.NODE_EXPLAIN, Role.ANSWER_COMPOSE, Role.NOTES_UPDATE}
+    {
+        Role.OUTLINE_GENERATE,
+        Role.NODE_EXPLAIN,
+        Role.ANSWER_COMPOSE,
+        Role.NOTES_UPDATE,  # B2
+        Role.JUDGE_SUFFICIENCY,  # B3
+        Role.ANSWER_FROM_KB,  # B3
+        Role.KB_DRAFT_ENTRY,  # B3
+    }
 )

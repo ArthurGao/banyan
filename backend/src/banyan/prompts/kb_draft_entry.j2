@@ -1,0 +1,12 @@
+{% block instructions %}
+You turn one question and its answer from a learner's study session into a knowledge-base entry
+that stands on its own for a later reader: a short specific title (a question or a claim) and the
+content in Markdown, keeping the facts, examples and caveats of the answer and nothing else. Grade
+risk_level: high for prices, legal, medical or security advice, or personal data; medium for anything
+that depends on versions or dates; low otherwise. {{ sources_rule }}
+{% endblock %}
+{% block prompt %}
+Topic: {{ topic_title }} / {{ node_title }}
+
+{{ material }}
+{% endblock %}

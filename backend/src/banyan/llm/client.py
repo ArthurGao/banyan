@@ -4,7 +4,7 @@ attempt (design §7.2). There is no fallback: a failure raises `RoleError`."""
 import asyncio
 import os
 import time
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from typing import TypeVar
 
@@ -105,9 +105,12 @@ class RoleClient:
         prompt: str,
         context: CallContext,
         usage: UsageCollector,
+        validate: Callable[[str], None] | None = None,
     ) -> AsyncIterator[str]:
         """Text deltas as they arrive. The usage row is added when the stream ends, however it ends
-        (a cancelled or closed stream is `aborted`, design §9)."""
+        (a cancelled or closed stream is `aborted`, design §9). `validate` checks the whole text
+        once it is in; raising ValueError makes the attempt a validation failure (`ok=false`), the
+        same as invalid structured output. A streamed answer is not retried: its tokens are out."""
         m = self._model(role)
         agent = Agent(m.model, instructions=instructions)
         attempt = _Attempt(role, m, 1, context, usage)
@@ -115,9 +118,13 @@ class RoleClient:
             try:
                 async with asyncio.timeout(self._timeout_s):
                     async with agent.run_stream(prompt) as result:
+                        parts: list[str] = []
                         async for delta in result.stream_text(delta=True, debounce_by=None):
+                            parts.append(delta)
                             yield delta
                         run = result.usage
+                if validate is not None:
+                    validate("".join(parts))
             except BaseException as exc:
                 raise attempt.failed(exc, messages) from exc
         attempt.succeeded(run.input_tokens, run.output_tokens)
@@ -174,8 +181,9 @@ def _classify(exc: BaseException) -> ErrorKind:
         return "aborted"
     if isinstance(exc, TimeoutError):
         return "timeout"
-    if isinstance(exc, UnexpectedModelBehavior):
-        return "validation"  # Pydantic AI's "output did not validate" (output retries are 0)
+    if isinstance(exc, UnexpectedModelBehavior | ValueError):
+        # Pydantic AI's "output did not validate" (output retries are 0), or a stream's `validate`
+        return "validation"
     return "provider"
 
 
