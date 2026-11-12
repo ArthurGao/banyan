@@ -11,11 +11,13 @@ Without their configuration they fail rather than skip.
 
 import os
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
+from pydantic_ai import models
 
 from banyan.llm import RoleClient, load_roles
 from banyan.llm.roles import Role
@@ -69,7 +71,15 @@ def _models() -> list[str]:
     return [m.ref for m in config.models if m.tools]
 
 
+@pytest.fixture
+def real_models() -> Iterator[None]:
+    """tests/conftest.py refuses every real model request; this opt-in test is the one that may."""
+    with models.override_allow_model_requests(True):
+        yield
+
+
 @pytest.mark.llm
+@pytest.mark.usefixtures("real_models")
 async def test_every_tool_model_searches_and_cites_the_web_the_same_way() -> None:
     config = load_roles(Path(_env("BANYAN_ROLES_FILE")))
     failures: dict[str, str] = {}
