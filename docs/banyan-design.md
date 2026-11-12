@@ -800,6 +800,7 @@ error     {code, message}
     fetched_at}`（可点击是前端的事）。"所有模型行为一致"写成 `-m llm`（`tests/live/test_web_live.py`：roles 文件里每个支持工具的模型
     都要搜索并引用 `[W#]`），`-m search` 做一次真实 Tavily 搜索与抓取——两者都要 owner 的 key，**尚未运行**。后端 321 个测试 +
     `-m steward` 全绿。
+  - 2026-11-13：owner 给了 Tavily key（只在 `backend/.env`），`-m search` 通过（1 次真实搜索 + 抓取，约 6.5 s）；本机 `/health` 的 search 为 ok。
   - 2026-11-13（owner 要求）：`-m llm` 经 llm-gateway v2.1 的 `claude-sub` 通过（3 次请求，搜索、读取、引用 `[W1]`）；结构化 role
     （`judge.freshness` ×2、`outline.generate`）首次尝试即通过。首跑时模型没搜索——它认定虚构产品查不到；freshness 的 `needs_web` 判定
     此前没有进 compose 的 prompt，现在 `needs_web` 且有 web 时 prompt 要求先搜索（`answer_compose.j2`，

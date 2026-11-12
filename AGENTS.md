@@ -40,8 +40,8 @@ If a change must contradict the design, update the design in the same change and
 
 **v1 done: backend stages B0–B6 and the frontend screens** (built in this repo's main session 2026-11-13;
 no PWA in v1, owner decision 2026-11-13). `-m llm` (through llm-gateway's claude-sub) and `-m steward_live` on
-lite-rag + lite-mem passed 2026-11-13; the full image (frontend included) builds and serves. Open: `-m search`
-(needs a Tavily key) and the phone browser through Tailscale. Track the checklist in design §12; ticked
+lite-rag + lite-mem passed 2026-11-13, and `-m search` (Tavily) too; the full image (frontend included) builds
+and serves. Open: the phone browser through Tailscale. Track the checklist in design §12; ticked
 items are done and verified. Open questions are in design §13 — do not decide them silently; ask, or
 implement the conservative option behind config.
 
