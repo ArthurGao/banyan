@@ -11,7 +11,6 @@ from llm_steward_client import AsyncSteward
 
 from banyan.steward import HttpStewardClient
 from tests.contract.fake_embedder import FakeEmbedder
-from tests.contract.steward_llm import StewardLLM
 
 DEADLINE_S = 20.0
 
@@ -25,6 +24,10 @@ async def embedded_steward(
     extraction on, with steward's model scripted (tests/contract/steward_llm.py)."""
     overrides: dict[str, object] = {"embedder": FakeEmbedder()}
     if memory:
+        # Imported here: it needs llm-steward itself (`uv sync --group contract`), which the
+        # backend job does not install, and every test module is imported before markers deselect.
+        from tests.contract.steward_llm import StewardLLM
+
         overrides["llm"] = StewardLLM()
     steward = await AsyncSteward.embedded(
         f"sqlite+aiosqlite:///{db}", review=review,
