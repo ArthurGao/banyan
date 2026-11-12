@@ -36,6 +36,9 @@ Ollama 模型（steward 用）：`ollama pull bge-m3:567m && ollama pull qwen3:8
 | `BANYAN_SEARCH_PROVIDER` / `BANYAN_SEARCH_API_KEY` | `tavily` + key；不填则没有联网工具 |
 | 模型 provider 的 key | roles 文件里 `api_key_env` 指向的变量，例如 `ANTHROPIC_API_KEY` |
 
+容器里不能用 llm-gateway：网关只监听 `127.0.0.1`，也拒绝非 loopback 的 `Host`（403）。经网关跑订阅模型只适用于宿主机上的
+`uv run banyan serve`（见 `backend/roles.example.yaml` 的 gateway 注释）。
+
 仓库根目录的 `.env`（compose 读取）只放 `BANYAN_DB_PASSWORD`（数据库密码）。`BANYAN_DATABASE_URL` 由 compose 指向 `db`
 服务，`.env` 里的值在容器里被覆盖。密钥只在这两个 `.env` 里，镜像里没有。
 

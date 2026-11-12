@@ -5,7 +5,10 @@ providers:
   anthropic: {kind: anthropic, api_key_env: ANTHROPIC_API_KEY}
   deepseek: {kind: openai_compatible, base_url: "https://api.deepseek.com", api_key_env: DEEPSEEK_API_KEY}
   ollama: {kind: openai_compatible, base_url: "http://127.0.0.1:11434/v1"}
-  # llm-gateway, local development only and only when you started it:
+  # llm-gateway, local development only and only when you started it (`uv run banyan serve` on the
+  # host; the gateway listens on loopback only, so not from the container). Tools on its OpenAI
+  # endpoint need gateway v2.1 (2026-11-13). Model entry: {provider: gateway, name: claude-sub,
+  # tools: true, structured: true, context: 200000}.
   # gateway: {kind: openai_compatible, base_url: "http://127.0.0.1:8787/v1", api_key_env: GATEWAY_KEY}
 
 # The capability table (design §7.2): tool roles need `tools`, structured roles `structured`.
