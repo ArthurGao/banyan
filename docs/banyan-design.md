@@ -38,7 +38,7 @@
 - 支持 Claude、GPT、Gemini、DeepSeek、Kimi，按 role 配置模型
 - 联网搜索在所有模型上行为一致
 - 项目记忆：学习者的水平、偏好、薄弱点，长期生效且可审阅、删除（v1 为自动生效，见 §8.5 与 §13 第 8 条）
-- 手机、iPad、电脑都能用（响应式 PWA）
+- 手机、iPad、电脑都能用（响应式网页，浏览器访问；PWA 暂不做，owner 2026-11-13 决定）
 - 起步零成本：本机运行 + Tailscale，开发时可走订阅额度
 
 ### 非目标（v1 不做）
@@ -77,7 +77,7 @@
 | 联网 | 自有 `web_search` / `web_fetch` 工具 | 各模型内置搜索不统一，DeepSeek 没有；自有工具保证一致 |
 | 长流程 | 不用 Temporal | 每次请求秒级到分钟级；批量生成讲解（§5.1）是 N 个互相独立的短任务，不是长 agent：顺序由大纲决定，不等人，崩溃只损失一个节点。PG 任务表 + 租约 worker 覆盖进度、暂停、取消、重试、并发与整次 token 上限；整次上限在自有任务表里比在 Temporal 的逐 activity 重试里更容易卡住。引入条件见 §6.0 |
 | 任务运行时 | 仓库内独立模块 `banyan/jobs/`，不单独开 repo | 通用部分很小（领取、租约、退避、死信），难点在业务；还没有第二个使用者，且其他项目技术栈不同（cairn 用 Temporal，CampaignOps 是 TypeScript）。import-linter 禁止它导入 Banyan 业务代码，将来第二个 Python 项目需要时可原样搬出 |
-| 前端 | React + Vite PWA | 单用户 SPA，与 steward Admin 同栈；可安装到手机/iPad 主屏 |
+| 前端 | React + Vite SPA | 单用户 SPA，与 steward Admin 同栈；手机 / iPad 用浏览器访问（PWA 暂不做，owner 2026-11-13） |
 | 部署 | 阶段一本机 + Tailscale；阶段二 Oracle Always Free | 零成本；本机可用订阅额度与 Ollama |
 
 ## 3. 总体架构
@@ -85,7 +85,7 @@
 ```mermaid
 flowchart LR
   subgraph Clients
-    P[手机 / iPad / 电脑 PWA]
+    P[手机 / iPad / 电脑 浏览器]
   end
   subgraph Banyan
     API[FastAPI /v1 + SSE]
@@ -650,7 +650,7 @@ error     {code, message}
 
 ## 11. 前端
 
-生产环境由后端进程托管构建产物（`BANYAN_FRONTEND_DIST`，镜像里已设）：存在的文件原样返回，其余非 API 路径返回 `index.html`（单页应用），`/v1`、`/health`、`/openapi.json`、`/docs` 下的未知路径仍是 API 的 404；与 API 同源，PWA 才能安装。部署见 `deploy/README.md`。
+生产环境由后端进程托管构建产物（`BANYAN_FRONTEND_DIST`，镜像里已设）：存在的文件原样返回，其余非 API 路径返回 `index.html`（单页应用），`/v1`、`/health`、`/openapi.json`、`/docs` 下的未知路径仍是 API 的 404；与 API 同源（免跨域，手机上只记一个地址）。部署见 `deploy/README.md`。
 
 ### 11.1 布局
 
@@ -670,7 +670,7 @@ error     {code, message}
 - 快速提问：全局输入框，提交后显示归到哪个节点，可修改；无合适节点时提示新增节点（§5.3）。
 - 记忆候选：卡片式确认 / 拒绝，入口在顶栏徽标。
 - 用量页：每个主题的 KB 命中率、各 role token、节省估算（KB 命中次数 × 该主题 compose 平均 token）。
-- PWA：可安装，全屏；token 首次输入后保存在本地。
+- PWA 暂不做（owner 2026-11-13）：浏览器访问；token 首次输入后保存在本地。
 
 ## 12. 实施计划（给 Claude Code）
 
@@ -845,17 +845,17 @@ error     {code, message}
 
 - [x] 快速提问（`node.classify`）与支线移动；无合适节点时建议新节点（`origin=question`），用户确认后插入（后端；分两步，§5.3）
 - [x] `branch.compress`（预算调优：没有真实用量数据前不改默认值，留待验收后按 `/v1/usage` 调）
-- [ ] PWA（manifest、图标、app shell 缓存）——另一个会话；后端已能同源托管构建产物（§11）
+- [-] PWA（manifest、图标、app shell 缓存）——owner 2026-11-13 决定 v1 不做，之后再定；后端的同源托管照样用于浏览器访问（§11）
 - [x] 部署文档：本机 docker compose + Tailscale；Ollama 模型准备（`bge-m3:567m`、`qwen3:8b`）；steward 配置清单与 `banyan.yaml`（`Dockerfile`、`docker-compose.yml`、`deploy/README.md`）
-- 验收：手机经 Tailscale 安装 PWA 并完成完整学习流程
+- 验收：手机浏览器经 Tailscale 完成完整学习流程（原为"安装 PWA"，PWA 暂不做）
 - **收尾记录（2026-11-13，后端与部署）**：
   - owner 决定：快速提问分两步（`POST /topics/{id}/classify` JSON → `POST /topics/{id}/quick-ask` SSE）；部署做镜像 + compose + 文档，
     不动 owner 的 Tailscale。
   - 验证：后端 389 个测试 + `-m steward` 7 个全绿；`docker build --target backend` 与 `docker compose up`（fakes，独立项目名与临时数据库，
     事后删除）：启动时迁移到 head、`/health` ok、建主题、无 token 401、挂上前端构建产物后深链接返回 `index.html`、未知 API 路径仍是 JSON 404。
     **完整镜像（含前端）构建不过**：另一个会话的前端 `pnpm build` 类型检查失败（`src/api/generated/core/serverSentEvents.gen.ts` 与
-    `exactOptionalPropertyTypes`、`e2e/shell.spec.ts` 缺 DOM 类型），前端修好后 `docker compose up -d --build` 即可。手机经 Tailscale 安装
-    PWA 的验收待前端与 owner。
+    `exactOptionalPropertyTypes`、`e2e/shell.spec.ts` 缺 DOM 类型），前端修好后 `docker compose up -d --build` 即可。手机经 Tailscale 的
+    验收待前端与 owner。
   - /simplify（四个代理）：支线历史只在 `branches.history` 一处拼装（提问、重答、压缩共用，整轮规则）——顺带修了重答丢摘要（先写失败的
     测试）；`estimate_tokens`、`advance_mark`、`record.save_usage` 各一份；`start_ask` / `start_reanswer` 收 `Runtime`；前端托管的 API 前缀从
     OpenAPI 路径表推导；Dockerfile 用 builder 阶段（运行镜像不含 git 与 uv）、缓存挂载、`.dockerignore` 排除测试与文档。没做：

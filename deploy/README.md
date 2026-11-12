@@ -1,7 +1,7 @@
 # 部署 Banyan（阶段一：本机 + Tailscale）
 
 设计 §2、§12 B6。一个容器跑 API、任务 worker 和构建好的前端；数据库是同一 compose 里的 PostgreSQL + pgvector；
-llm-steward 与 Ollama 在宿主机上（它们有自己的部署，见各自仓库）。手机经 Tailscale 用 HTTPS 访问并安装 PWA。
+llm-steward 与 Ollama 在宿主机上（它们有自己的部署，见各自仓库）。手机经 Tailscale 用 HTTPS 在浏览器里访问（PWA 暂不做）。
 
 ## 1. 前提
 
@@ -61,14 +61,14 @@ docker compose logs -f banyan
 
 ## 5. 手机访问（Tailscale）
 
-PWA 要 HTTPS。用 Tailscale 给本机的 8800 端口发证书并只对 tailnet 开放：
+用 Tailscale 给本机的 8800 端口发 HTTPS 证书并只对 tailnet 开放（API token 不走明文）：
 
 ```bash
 tailscale serve --bg --https=443 http://127.0.0.1:8800
 tailscale serve status              # 显示 https://<机器名>.<tailnet>.ts.net
 ```
 
-手机（已登录同一 tailnet）打开该地址，浏览器菜单"添加到主屏幕"安装 PWA，首次进入填 API token。
+手机（已登录同一 tailnet）用浏览器打开该地址，首次进入填 API token。
 关闭：`tailscale serve --https=443 off`。不要用 `tailscale funnel`（会公开到互联网）。
 
 ## 6. 备份与恢复
@@ -82,4 +82,4 @@ docker compose exec -T db pg_restore -U banyan -d banyan --clean < banyan-YYYY-M
 
 ## 7. 验收（设计 §12 B6）
 
-手机经 Tailscale 安装 PWA，完成一遍：建主题 → 大纲 → 讲解 → 支线提问（含快速提问）→ 反馈 → 笔记 → 导出 HTML。
+手机浏览器经 Tailscale 完成一遍：建主题 → 大纲 → 讲解 → 支线提问（含快速提问）→ 反馈 → 笔记 → 导出 HTML。

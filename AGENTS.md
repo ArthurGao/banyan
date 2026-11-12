@@ -17,7 +17,7 @@ Naming: repo `banyan`, Python package `banyan`, CLI `banyan`, env prefix `BANYAN
 ```
 backend/     FastAPI service: learning tree, ask pipeline, LLM role layer, search tools, steward client,
              notes, HTML export, job worker (Python, uv)
-frontend/    React + Vite + TypeScript PWA (pnpm), responsive phone / tablet / desktop
+frontend/    React + Vite + TypeScript SPA (pnpm), responsive phone / tablet / desktop (no PWA in v1)
 docs/        design — read before writing code
 ```
 
@@ -38,11 +38,12 @@ If a change must contradict the design, update the design in the same change and
 
 ## Current stage
 
-**B6 — quick ask, branch compression, deployment — backend done** (the screens and the PWA are another
-session's). v1's backend stages are done; open: owner-run acceptance (`-m search`, `-m llm`,
-`-m steward_live`, the phone through Tailscale) and the full image once the frontend builds. Track the checklist in design §12; ticked items are done and verified. Open
-questions are in design §13 — do not decide them silently; ask, or implement the conservative option
-behind config.
+**B6 — quick ask, branch compression, deployment — backend done** (the screens are another
+session's; no PWA in v1, owner decision 2026-11-13). v1's backend stages are done; open: owner-run
+acceptance (`-m search`, `-m llm`, `-m steward_live` on lite-rag + lite-mem, the phone browser through
+Tailscale) and the full image once the frontend builds. Track the checklist in design §12; ticked
+items are done and verified. Open questions are in design §13 — do not decide them silently; ask, or
+implement the conservative option behind config.
 
 ## Non-negotiable rules
 
@@ -86,7 +87,7 @@ behind config.
   `answer.compose` agent loop), the llm-steward Python SDK's generated models (git dependency, pinned commit), httpx, Jinja2, sse-starlette, Typer, pytest, ruff, mypy (strict),
   import-linter.
 - Frontend: React 18, Vite, TypeScript (strict), Tailwind, shadcn/ui, TanStack Query, React Router,
-  `@hey-api/openapi-ts`, react-markdown + remark-gfm + rehype-katex + Shiki, vite-plugin-pwa, Vitest,
+  `@hey-api/openapi-ts`, react-markdown + remark-gfm + rehype-katex + Shiki, Vitest,
   Playwright (mobile and tablet viewports).
 - Services: llm-steward (memory: lite-mem in-process by default; KB: lite-rag in-process; namespace config
   `deploy/steward/banyan.yaml`), Ollama on the host (`bge-m3:567m` embeddings, `qwen3:8b` for steward's

@@ -86,10 +86,10 @@ def create_app(
 
 
 def serve_frontend(app: FastAPI, dist: Path) -> None:
-    """The built frontend from this process, one origin with the API (the PWA needs it): a file
-    that exists is served as it is; any other page is the app shell (`index.html`), which routes
-    on the client. Paths under the API's own first segments (`v1`, `health`, the docs…) stay the
-    API's, so an unknown API path is its 404, never the shell."""
+    """The built frontend from this process, one origin with the API (no CORS, one address on
+    the phone): a file that exists is served as it is; any other page is the app shell
+    (`index.html`), which routes on the client. Paths under the API's own first segments (`v1`,
+    `health`, the docs…) stay the API's, so an unknown API path is its 404, never the shell."""
     root = dist.resolve()
     index = root / "index.html"
     # From the API's own description (included routers are not flattened into app.routes),
