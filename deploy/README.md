@@ -21,7 +21,10 @@ Ollama 模型（steward 用）：`ollama pull bge-m3:567m && ollama pull qwen3:8
 2. 两把 key（设计 §8.1）：
    - `BANYAN_STEWARD_API_KEY`：scope `read`、`write`（检索、提议条目、反馈、episode、记忆页）。
    - `BANYAN_STEWARD_REVIEW_KEY`：scope `review`，只用于建 collection 与失效条目。
-3. 记忆抽取：steward 的 `STEWARD_MEMORY_PROVIDER` 默认 lite-mem，抽取模型走 Ollama `qwen3:8b`。
+3. 记忆抽取：steward 的 `STEWARD_MEMORY_PROVIDER` 默认 lite-mem，抽取模型走 Ollama `qwen3:8b`。**必须给 steward 设
+   `LITEMEM_LLM__REASONING=none`**：不设时 qwen3 会先思考，本机一次抽取约 85 s，超过 steward 给任务的 30 s，`/v1/episodes`
+   一直 503，Banyan 的 episode 任务反复重试（2026-11-13 实测；关掉后 13 s）。
+4. Ollama 刚启动时第一次检索可能超时（模型冷加载），steward 回 503，Banyan 把这次检索按降级处理；预热一次即可。
 
 ## 3. 配置 `backend/.env`
 
