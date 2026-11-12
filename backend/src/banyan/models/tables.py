@@ -235,6 +235,8 @@ class GenerationRun(Base):
             unique=True,
             postgresql_where=text("status IN ('running', 'paused', 'budget_exhausted')"),
         ),
+        # The topic's latest run, finished or not (GET /topics/{id} latest_run_id).
+        Index("ix_generation_runs_topic_created", "topic_id", "created_at"),
     )
 
     topic_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("topics.id", ondelete="CASCADE"))

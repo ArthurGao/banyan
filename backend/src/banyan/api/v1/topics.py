@@ -19,7 +19,7 @@ from banyan.api.schemas import (
     TopicSummary,
     TopicUsageOut,
 )
-from banyan.services import answers, generation, outline, quick_ask, topics, usage_stats
+from banyan.services import answers, generation, outline, quick_ask, runs, topics, usage_stats
 
 router = APIRouter(tags=["topics"])
 
@@ -43,7 +43,9 @@ async def get_topic(topic_id: uuid.UUID, s: Session) -> TopicDetail:
     topic = await topics.get_topic(s, topic_id)
     nodes = await outline.topic_nodes(s, topic_id)
     return TopicDetail(
-        topic=TopicOut.model_validate(topic), nodes=[NodeOut.model_validate(n) for n in nodes]
+        topic=TopicOut.model_validate(topic),
+        nodes=[NodeOut.model_validate(n) for n in nodes],
+        latest_run_id=await runs.latest_run_id(s, topic_id),
     )
 
 

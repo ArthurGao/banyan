@@ -570,8 +570,8 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 | PATCH | `/generation-runs/{id}` | `{action: pause|resume|cancel, add_budget}`；已结束的 run 返回 409 |
 | POST | `/generation-runs/{id}/nodes/{node_id}/retry` | 单节点重试 |
 | GET | `/topics` | 主题列表（含进度） |
-| GET | `/topics/{id}` | 主题详情 + 大纲树 + 节点状态 |
-| PATCH | `/topics/{id}` | 修改标题、目标、水平、指令、状态 |
+| GET | `/topics/{id}` | 主题详情 + 大纲树 + 节点状态 + `latest_run_id`（最近一次全部生成的 run，结束与否；刷新页面后前端据此取进度） |
+| PATCH | `/topics/{id}` | 修改标题、目标、水平、指令、状态、讲解生成方式（`explain_mode`，§5.1 第 5 步“之后可随时修改”） |
 | POST | `/topics/{id}/nodes` | 新增节点（可指定 parent、position、origin） |
 | PATCH | `/nodes/{id}` | 重命名、改 summary、改状态 |
 | POST | `/nodes/{id}/move` | 移动到 `parent_id` 下的 `position`（带子树；不能移到自己下面；超过 3 层 422） |
@@ -681,7 +681,7 @@ error     {code, message}
 ### B0 — 脚手架
 
 - [x] monorepo：`backend/`（uv、ruff、mypy strict、import-linter、pytest、pre-commit）
-- [ ] `frontend/`（pnpm、Vite、TS strict、ESLint、Vitest、Playwright）：由另一个会话搭建（owner 2026-11-12 决定），B0 后端会话不碰
+- [x] `frontend/`（pnpm、Vite、TS strict、ESLint、Vitest、Playwright）：另一个会话搭了空壳，页面由本会话实现（前端见下方“前端 — v1 页面”，2026-11-13）
 - [x] `docker-compose.yml`：`db`（pgvector 镜像，固定版本）；steward 以文档说明的方式在本机运行（宿主机 Ollama 需 `bge-m3:567m`，不配外部 LLM 时还需 `qwen3:8b`）
 - [x] Settings、分层 `/health`、Alembic 基线（schema `banyan`）、CLI（serve / migrate / openapi）
 - [x] **steward contract spike**（`tests/contract/`，`-m steward`；嵌入模式已跑通，对运行中 steward 的 `-m steward_live` 已写、待跑）：建 collection 带 `review_policy`
@@ -714,7 +714,7 @@ error     {code, message}
       `StewardClient` 用 `FakeSteward` 且返回空（路径表第 6 行），judge 因而被跳过；compose 暂无工具。
       这样 B3 只替换 `FakeSteward` 与补 judge 测试，不重写流程
 - [x] SSE：占位消息、提交点、中断与 409 语义（§9）；`messages/latest`
-- [ ] 前端：主题列表、大纲树、节点页、支线页，三种布局；SSE 客户端（去重、中断后取回）——另一个会话负责（owner 2026-11-12）；固定澄清问题在前端
+- [x] 前端：主题列表、大纲树、节点页、支线页，三种布局；SSE 客户端（去重、中断后取回）；固定澄清问题在前端（前端见下方“前端 — v1 页面”，2026-11-13）
 - 验收：手机与 iPad 上可完成“建主题 → 讲解 → 支线追问”；所有调用有 usage 记录；路径表第 6、7 行测试通过
 - **收尾记录（2026-11-12，后端）**：
   - 验收：路径表第 6、7、8 行测试通过（`tests/pipeline/test_path_table.py`）；每次 provider 尝试一行 usage（成功、校验重试、超时、
@@ -737,9 +737,9 @@ error     {code, message}
 - [x] `collection_ensure` 任务：`topics.steward_collection_id` 已有值就跳过（steward 的 collection 列表不分页、不按名字过滤，`ensure_collection` 每次都列全部，只该在首次和崩溃恢复时跑）
 - [x] `banyan/jobs/` 通用任务运行时（领取 `SKIP LOCKED`、租约回收、重试、退避、死信、幂等键、`dedupe_key`）；import-linter 契约禁止它导入 Banyan 其他包；业务处理器在 `worker/handlers/` 注册
 - [x] `node_explain` 任务（复用 pipeline，§6.0）；`explain_mode=prefetch` 与 `all`；`generation_runs`、估算、整次预算、并发上限、暂停 / 继续 / 取消、单节点重试；与交互式讲解的互斥
-- [ ] 前端：讲解生成方式选择、估算确认、进度条与节点状态——另一个会话负责
+- [x] 前端：讲解生成方式选择、估算确认、进度条与节点状态（前端见下方“前端 — v1 页面”，2026-11-13）
 - [x] `notes.update` 与 node_notes；触发条件（§5.4）
-- [x] HTML 导出（单文件、亮暗、目录、折叠）（后端）；前端预览、下载、分享——另一个会话负责
+- [x] HTML 导出（单文件、亮暗、目录、折叠）（后端）；前端预览、下载、分享（前端见下方“前端 — v1 页面”，2026-11-13）
 - 验收：
   - 10 节点主题用 FakeLLM “全部生成”完成，每个节点恰好一条讲解
   - 运行中杀掉 worker，重启后租约过期的任务被重领，没有重复讲解
@@ -767,8 +767,8 @@ error     {code, message}
 - [x] prompt 注入防护（§6.2，`pipeline/sources.py`；B1 已做）
 - [x] 主题 ↔ collection（建主题入队、失败重试）；pipeline 的 scope（三级范围）/ retrieve（降级规则）/ judge / answer.from_kb / writeback；`proposed_entry_ids` 回写
 - [x] 路径表 §6.4 第 1、2、5、6、7、8、9、10 行的测试
-- [x] 反馈（按 retrieval_id + item_id）、`kb_deprecate`、重答、`reanswer=false`；删除节点时的"同时失效"（后端）；来源徽章、引用与提示的界面——另一个会话
-- [x] 用量页：命中率与节省估算（`GET /v1/usage`；页面——另一个会话）
+- [x] 反馈（按 retrieval_id + item_id）、`kb_deprecate`、重答、`reanswer=false`；删除节点时的"同时失效"（后端）；来源徽章、引用与提示的界面（前端见下方“前端 — v1 页面”，2026-11-13）
+- [x] 用量页：命中率与节省估算（`GET /v1/usage`；页面（前端见下方“前端 — v1 页面”，2026-11-13））
 - 验收：**低风险**样本问题第二次提问走路径 1（high 风险内容进 steward 审核队列，不在验收内）；标 wrong 后重答并使 `proposed_entry_ids` 失效；用量页显示命中率
 - **收尾记录（2026-11-12，后端）**：
   - 验收：`tests/contract/test_kb_first_e2e.py`（`-m steward`，内嵌 steward + FakeLLM）跑完整链路：第一次提问 → `kb_propose` →
@@ -791,7 +791,7 @@ error     {code, message}
 - [x] `answer.compose` / `node.explain` 变为 agent loop（kb_search / web_search / web_fetch，步数与总 token 预算；`allow_web=false` 不挂 web 工具）
 - [x] `judge.freshness`；web 来源条目的 `url:` / `fetched_at:` / `valid_to:` tags；检索时过滤过期条目并入队 `kb_deprecate`（按 `messages.valid_to`，§8.2）
 - [x] 生成大纲时联网一次，写入 `topics.research_sources`；节点讲解把这份资料放进初始上下文，`web_fetch` 白名单包含这些 URL
-- [x] 路径表第 3、4、4b 行测试；SSE `tool` 事件、`warnings`（后端；前端显示——另一个会话）
+- [x] 路径表第 3、4、4b 行测试；SSE `tool` 事件、`warnings`（后端；前端显示（前端见下方“前端 — v1 页面”，2026-11-13））
 - 验收：时效类问题跳过 KB 并联网；引用可点击；所有模型（至少 Claude、GPT、DeepSeek）行为一致
 - **收尾记录（2026-11-12，后端）**：
   - owner 决定：默认搜索 provider 为 Tavily（§13 第 1 项）。
@@ -821,7 +821,7 @@ error     {code, message}
 
 - [x] 主题指令编辑与注入（编辑早已有 PATCH；B5 补进 `answer_from_kb` 与 `notes_update`）
 - [x] 学习状态计算；episode 提交任务（信号作为 system 消息附带，§8.2）
-- [x] 记忆页：记忆列表、置顶与删除（steward 自动生效，§8.5）；KB 候选卡片（确认 / 拒绝）；检索包含记忆（后端；页面——另一个会话）
+- [x] 记忆页：记忆列表、置顶与删除（steward 自动生效，§8.5）；KB 候选卡片（确认 / 拒绝）；检索包含记忆（后端；页面（前端见下方“前端 — v1 页面”，2026-11-13））
 - 验收（真 steward，`-m steward`；episode 以 `mode=sync` 提交，记忆在提交时抽取；记忆进入检索引擎仍经 steward 的同步队列，所以检索类断言轮询直到出现或超时，不假设立即可见）：
   - 抽取出的偏好（如“用 Java 类比”）在新主题的讲解中生效；删除后不再生效
   - 改口（“别用 Java 类比了”）后旧偏好不再出现在检索里（依赖引擎消解冲突，默认 lite-mem；换成 mem0 时由 steward 补偿）
@@ -857,9 +857,8 @@ error     {code, message}
     不动 owner 的 Tailscale。
   - 验证：后端 389 个测试 + `-m steward` 7 个全绿；`docker build --target backend` 与 `docker compose up`（fakes，独立项目名与临时数据库，
     事后删除）：启动时迁移到 head、`/health` ok、建主题、无 token 401、挂上前端构建产物后深链接返回 `index.html`、未知 API 路径仍是 JSON 404。
-    **完整镜像（含前端）构建不过**：另一个会话的前端 `pnpm build` 类型检查失败（`src/api/generated/core/serverSentEvents.gen.ts` 与
-    `exactOptionalPropertyTypes`、`e2e/shell.spec.ts` 缺 DOM 类型），前端修好后 `docker compose up -d --build` 即可。手机经 Tailscale 的
-    验收待前端与 owner。
+    完整镜像（含前端）当时构建不过（前端类型检查失败）；2026-11-13 前端实现后已构建通过（见“前端 — v1 页面”）。手机经 Tailscale 的
+    验收待 owner。
   - /simplify（四个代理）：支线历史只在 `branches.history` 一处拼装（提问、重答、压缩共用，整轮规则）——顺带修了重答丢摘要（先写失败的
     测试）；`estimate_tokens`、`advance_mark`、`record.save_usage` 各一份；`start_ask` / `start_reanswer` 收 `Runtime`；前端托管的 API 前缀从
     OpenAPI 路径表推导；Dockerfile 用 builder 阶段（运行镜像不含 git 与 uv）、缓存挂载、`.dockerignore` 排除测试与文档。没做：
@@ -869,8 +868,33 @@ error     {code, message}
     任务按去重键串行，且 compare-and-set 比较的是读到的旧水位，后到的一次匹配不上）；重答提前入队压缩（重答传 `compress=False`，不入队）；
     缺支线移动测试（B1 的 `test_outline_api.py:138` 已覆盖）。修复不涉及 §4 / §6 / §8，没有再跑 Codex。
   - 2026-11-13 补跑 `-m steward_live`：本机 steward（native 引擎，namespace `banyan` 由 `deploy/steward/banyan.yaml` 应用，读写与 review
-    两把临时 key，跑完吊销）2 个测试通过——真实 HTTP、两把 key 的 scope 路由、条目同步与定级。lite-rag + lite-mem 组合（同步延迟、rerank
-    分数、真实记忆抽取）仍待两者的服务起来后再跑。
+    两把临时 key，跑完吊销）2 个测试通过——真实 HTTP、两把 key 的 scope 路由、条目同步与定级。
+  - 2026-11-13 lite-rag + lite-mem（都在 steward 进程内，Ollama `bge-m3:567m` / `qwen3:8b`）：`-m steward_live` 2 个通过，同步延迟
+    0.55–1.44 s，分数是 RRF 融合分（约 0.017，steward 默认不开 rerank）。真实记忆抽取：一个 episode（`mode=sync`）13 s，抽出 4 条正确记忆。
+    两处只在真引擎上出现：(1) Ollama 刚启动时第一次检索超时，steward 回 503，Banyan 按检索降级处理（设计内）；(2) lite-mem 默认让 qwen3
+    思考，一次抽取约 85 s，超过 steward 给任务的 30 s（lease 60 s 的一半），`/v1/episodes` 一直 503——要设 `LITEMEM_LLM__REASONING=none`
+    （写进 `deploy/README.md` 第 2 节）。镜像（`BANYAN_BUILD_TARGET=backend`）重新构建通过，容器内 `banyan openapi` 28 个路径、非 root 运行。
+
+### 前端 — v1 页面（本会话实现，2026-11-13）
+
+- [x] 外壳：token 门（401 清 token 重新输入）、顶栏（主题、记忆 + 待确认卡片数、用量、快速提问、API 健康、中 / 英、外观）、三种布局（`ResponsiveSplit`）
+- [x] 新主题对话（课题 → 目标 / 水平 / 语言，可跳过）→ 大纲流式生成 → 编辑（重命名、增删、拖动与上下移、插入前置节点）→ 确认并选讲解方式
+- [x] 节点页（打开即讲解、后台生成时轮询、反馈与重答、在此提问）、支线页（流式回答、停止、来源徽章 / 引用 / 模型 / 路径、反馈与重答、移动、关闭）
+- [x] 全部生成：估算 → 预算 → 进度条（暂停、继续、取消、追加预算）、大纲中节点“生成中 / 失败可重试”；讲解方式随时可改
+- [x] 笔记栏、导出（沙箱 iframe 预览、下载、系统分享）、主题设置（含主题指令、归档）、记忆页（置顶、删除、KB 卡片确认 / 拒绝、steward 503 提示）、快速提问（归类 → 可改 → 无合适节点时由用户决定是否新增）、用量页
+- 验收：Playwright 在三个视口（390 / 820 / 1366）对 `BANYAN_FAKES=1` 的真后端跑通“建主题 → 大纲 → 讲解 → 支线 → 反馈重答 → 导出（预览零外部请求）”与“全部生成 → 快速提问新增节点”；完整镜像构建并冒烟通过。手机经 Tailscale 的真机验收待 owner。
+- **收尾记录（2026-11-13）**：
+  - 实现中改了接口（设计已有、接口没跟上）：`GET /topics/{id}` 加 `latest_run_id`（刷新页面后找回进度）；`PATCH /topics/{id}` 收 `explain_mode`（§5.1“之后可随时修改”）；
+    迁移 0009 给 `generation_runs(topic_id, created_at)` 建索引。API 客户端只生成类型（hey-api 生成的运行时在 `exactOptionalPropertyTypes` 下类型检查不过），
+    请求走手写的 `api/http.ts` + `api/endpoints.ts`；去掉 vite-plugin-pwa。e2e 由 `frontend/e2e/serve.sh` 起带 fakes 的真后端（库 schema `banyan_e2e`，端口 8812），CI 前端 job 加了 e2e 与生成类型的漂移检查。
+  - 走查中修了：zh 里“主题”与外观撞词（改“外观”）；手机顶栏 44px 触控目标下溢出（用量 / 语言 / 外观收进菜单）；被取代的回答不再给反馈；长 provenance 撑宽手机页面。
+  - /simplify（四个代理）：共用提问表单、一处跑流并报告丢流与 409、错误提示与数字格式各一份、枚举常量一份、按领域事件刷新查询（并行）；节点状态改为在数据层同步
+    （`useNode` 回写大纲缓存，run 有节点完成时刷新主题；原先在页面里比较两份缓存）；409 不再用本地标记，交给服务端的 `generating` 轮询；主题选择单一来源（toast 也跟随）；
+    Markdown（react-markdown、KaTeX）与各页面按需加载、Shiki 只加载一次、流式文本延后渲染——入口包 1.17 MB → 389 kB（gzip 360 → 124 kB）；删掉 10 个没用的文案键与死代码。
+    没做：StrictMode 下“打开即请求”的 effect 改为服务端驱动（要改后端接口，收益是去掉 `useStream` 里的微任务）；把删 schema 做成后端 CLI 命令（生产 CLI 里有删库命令风险更大）；两套讲解方式文案合并（措辞有意不同）。
+  - Codex：两条成立并修复（先写失败的测试）——丢流后支线只刷新一次，服务端仍在写的回答提交后看不到（改为跟踪 `messages/latest`，`streaming` 时轮询、落定后刷新，
+    也覆盖了别处正在写的回答）；快速提问丢流后无路可走（有了落点就给“打开支线”，由支线页取回）。修复只在前端、不涉及 §4 / §6 / §8，没有再跑 Codex。
+  - 未复现的一次：e2e 中并发取 9 个节点时出现过一次 500（之后 7 轮全绿，手工并发也没复现）；测试现在会报出失败的请求与响应体，再出现时据此查后端。
 
 ### 之后（v2 候选）
 
@@ -888,9 +912,11 @@ error     {code, message}
 3. ~~embedding 一致性~~ **已解决（2026-11-12）**：steward 默认记忆引擎改为 lite-mem，向量用 bge-m3，与 lite-rag 一致（mem0 的 MiniLM 只在切回 mem0 时出现）。
 4. **删除节点**时的 KB 条目：**v1 采用保守选项**（不自动失效，UI 提示用户选择，§4），用户可改。
 5. **KB 直出**时是否完全不调用模型（直接展示检索到的历史答案）以进一步省 token？**v1 采用保守选项**（`answer.from_kb` 便宜模型改写）；若要切换，加 `BANYAN_KB_VERBATIM=true`，`path` 中记 `answer: verbatim`，provenance 为空。
-6. **Claude Agent SDK 模式**是否需要，以及它与自有搜索工具的结果如何统一入库。
-7. **License**（建议 Apache-2.0，与 lite-rag 一致）。
-8. **记忆是否先确认再生效**（§8.5）：steward 默认自动写入。v1 接受自动写入 + 可删除 + 可置顶（B5 实现记忆页）。若要"确认后生效"，需向 steward 提 namespace 级 `memory_policy: confirm` 的变更需求。**需要用户决定**是否接受 v1 的降级。
+6. ~~Claude Agent SDK 模式~~ **已解决（2026-11-13，owner 同意）**：不单独做。Claude 订阅经 llm-gateway v2.1（`/v1/chat/completions` 支持客户端工具）
+   走现有 role 层：roles 文件里 provider `openai_compatible` 指向网关、模型 `claude-sub`；工具仍是 Banyan 自己的 `kb_search` / `web_search` /
+   `web_fetch`，入库路径不变。`-m llm` 与结构化 role 已经实测通过（§12 B4）。只适用于宿主机上的 `banyan serve`（网关只听 loopback）。
+7. ~~License~~ **已解决（2026-11-13，owner 同意）**：Apache-2.0，与 lite-rag、llm-steward、lite-mem 一致；仓库根目录 `LICENSE`，`backend/pyproject.toml` 已声明。
+8. **记忆是否先确认再生效**（§8.5）：steward 默认自动写入。v1 接受自动写入 + 可删除 + 可置顶（B5 实现记忆页）。若要"确认后生效"，需向 steward 提 namespace 级 `memory_policy: confirm` 的变更需求。**已决定（2026-11-13，owner）**：接受 v1 的降级（自动写入 + 记忆页可删除、可置顶），不向 steward 提 `memory_policy: confirm`。
 9. **判定阈值校准**：`judge.sufficiency` 的 `coverage` 由便宜模型自报，未校准。B3 验收后用真实问答样本抽查命中答案的反馈率，若 `wrong` 率明显高于路径 2，上调阈值或改用两段判定。
 10. **讲解生成方式的默认值**：v1 默认 `prefetch`（2026-11-11 建议，用户可在新主题流程中改选，也可改配置 `BANYAN_DEFAULT_EXPLAIN_MODE`）。
 

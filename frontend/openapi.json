@@ -1540,6 +1540,19 @@
       },
       "TopicDetail": {
         "properties": {
+          "latest_run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The topic's most recent generation run, finished or not",
+            "title": "Latest Run Id"
+          },
           "nodes": {
             "description": "The outline, flat: parent_id and position give the tree",
             "items": {
@@ -1630,6 +1643,17 @@
       },
       "TopicPatch": {
         "properties": {
+          "explain_mode": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplainMode"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Can change at any time after confirming (design §5.1 step 5)"
+          },
           "goal": {
             "anyOf": [
               {

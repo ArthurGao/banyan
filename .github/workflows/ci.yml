@@ -76,6 +76,21 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    # e2e runs the real backend with fakes (frontend/e2e/serve.sh) on schema banyan_e2e.
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg18
+        env:
+          POSTGRES_USER: banyan
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: banyan
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U banyan -d banyan"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      BANYAN_DATABASE_URL: postgresql+asyncpg://banyan:ci@localhost:5432/banyan
     defaults:
       run:
         working-directory: frontend
@@ -89,9 +104,20 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      # frontend/ is being scaffolded in another session; this job runs its own scripts only.
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: "0.10.8"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+          cache-suffix: backend
       - run: pnpm install --frozen-lockfile
+      # The generated types must match the committed openapi.json.
+      - run: pnpm gen:api && git diff --exit-code -- src/api/generated
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+      - run: uv sync --locked
+        working-directory: backend
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm e2e

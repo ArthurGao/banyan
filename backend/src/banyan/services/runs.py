@@ -193,6 +193,16 @@ async def get_run(s: AsyncSession, run_id: uuid.UUID) -> GenerationRun:
     return await get_or_404(s, GenerationRun, run_id)
 
 
+async def latest_run_id(s: AsyncSession, topic_id: uuid.UUID) -> uuid.UUID | None:
+    """The topic's most recent run, finished or not, so a reloaded client finds its progress."""
+    return await s.scalar(
+        select(GenerationRun.id)
+        .where(GenerationRun.topic_id == topic_id)
+        .order_by(GenerationRun.created_at.desc(), GenerationRun.id.desc())
+        .limit(1)
+    )
+
+
 async def admit(s: AsyncSession, run_id: uuid.UUID) -> Admission:
     """May the worker explain one more node of this run? `over` when the run ended, `wait` while
     it is paused or would go over budget (its jobs are then parked). Commits."""

@@ -386,3 +386,15 @@ async def test_a_run_adopts_a_prefetch_job_already_waiting_for_its_node(
     await drain(run_ctx(db, migrated_url, explain_only()), finished)
     usage = [u for u in await rows(db, UsageLog) if u.role == "node.explain"]
     assert {str(u.generation_run_id) for u in usage} == {run["id"]}
+
+
+async def test_the_topic_names_its_latest_run_so_a_reload_finds_the_progress(
+    api: httpx.AsyncClient,
+) -> None:
+    topic_id, _ = await outline(api, 2, "all")
+    assert (await api.get(f"/v1/topics/{topic_id}")).json()["latest_run_id"] is None
+    run = (await api.post(f"/v1/topics/{topic_id}/generation-runs", json={})).json()
+    assert (await api.get(f"/v1/topics/{topic_id}")).json()["latest_run_id"] == run["id"]
+    await api.patch(f"/v1/generation-runs/{run['id']}", json={"action": "cancel"})
+    again = (await api.post(f"/v1/topics/{topic_id}/generation-runs", json={})).json()
+    assert (await api.get(f"/v1/topics/{topic_id}")).json()["latest_run_id"] == again["id"]

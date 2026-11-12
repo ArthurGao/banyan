@@ -38,10 +38,10 @@ If a change must contradict the design, update the design in the same change and
 
 ## Current stage
 
-**B6 — quick ask, branch compression, deployment — backend done** (the screens are another
-session's; no PWA in v1, owner decision 2026-11-13). v1's backend stages are done; open: owner-run
-acceptance (`-m search`, `-m llm`, `-m steward_live` on lite-rag + lite-mem, the phone browser through
-Tailscale) and the full image once the frontend builds. Track the checklist in design §12; ticked
+**v1 done: backend stages B0–B6 and the frontend screens** (built in this repo's main session 2026-11-13;
+no PWA in v1, owner decision 2026-11-13). `-m llm` (through llm-gateway's claude-sub) and `-m steward_live` on
+lite-rag + lite-mem passed 2026-11-13; the full image (frontend included) builds and serves. Open: `-m search`
+(needs a Tavily key) and the phone browser through Tailscale. Track the checklist in design §12; ticked
 items are done and verified. Open questions are in design §13 — do not decide them silently; ask, or
 implement the conservative option behind config.
 

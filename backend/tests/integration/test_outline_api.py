@@ -161,3 +161,14 @@ async def test_unknown_ids_are_404_problems(api: httpx.AsyncClient) -> None:
         response = await api.get(url)
         assert response.status_code == 404
         assert response.json()["title"] == "not_found"
+
+
+async def test_the_explain_mode_can_change_after_confirming(api: httpx.AsyncClient) -> None:
+    # Design §5.1 step 5: the mode is chosen at confirmation and can be changed at any time.
+    topic = await create_topic(api)
+    await create_node(api, topic["id"], "A")
+    await api.post(f"/v1/topics/{topic['id']}/outline/confirm", json={"explain_mode": "prefetch"})
+    changed = await api.patch(f"/v1/topics/{topic['id']}", json={"explain_mode": "manual"})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["explain_mode"] == "manual"
+    assert (await api.get(f"/v1/topics/{topic['id']}")).json()["topic"]["explain_mode"] == "manual"

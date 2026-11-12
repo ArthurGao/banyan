@@ -45,6 +45,9 @@ class TopicPatch(BaseModel):
     language: Language | None = None
     instructions: str | None = Field(default=None, max_length=10_000)
     status: TopicStatus | None = None
+    explain_mode: ExplainMode | None = Field(
+        default=None, description="Can change at any time after confirming (design §5.1 step 5)"
+    )
 
 
 class TopicOut(_Out):
@@ -80,6 +83,9 @@ class TopicDetail(BaseModel):
     topic: TopicOut
     nodes: list[NodeOut] = Field(
         description="The outline, flat: parent_id and position give the tree"
+    )
+    latest_run_id: uuid.UUID | None = Field(
+        default=None, description="The topic's most recent generation run, finished or not"
     )
 
 
