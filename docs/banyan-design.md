@@ -800,6 +800,10 @@ error     {code, message}
     fetched_at}`（可点击是前端的事）。"所有模型行为一致"写成 `-m llm`（`tests/live/test_web_live.py`：roles 文件里每个支持工具的模型
     都要搜索并引用 `[W#]`），`-m search` 做一次真实 Tavily 搜索与抓取——两者都要 owner 的 key，**尚未运行**。后端 321 个测试 +
     `-m steward` 全绿。
+  - 2026-11-13（owner 要求）：`-m llm` 经 llm-gateway v2.1 的 `claude-sub` 通过（3 次请求，搜索、读取、引用 `[W1]`）；结构化 role
+    （`judge.freshness` ×2、`outline.generate`）首次尝试即通过。首跑时模型没搜索——它认定虚构产品查不到；freshness 的 `needs_web` 判定
+    此前没有进 compose 的 prompt，现在 `needs_web` 且有 web 时 prompt 要求先搜索（`answer_compose.j2`，
+    `test_a_question_judged_time_sensitive_tells_the_model_to_search_first`）。§6.4 第 4 行不变（模型仍可不用 web，source 记 `llm`）。
   - 与原设计的差异（已写回设计）：`source` 由代码按 `[W#]` / `[S#]` 引用决定，不再自报；SSE `tool` 之前的 token 是模型调工具前的话，
     客户端丢弃（§9）；过期过滤靠 `messages.valid_to` 而不是检索结果的 tags（检索不返回 tags；steward 只差 `EntryCreate.valid_to`，§8.2、§13）；
     大纲 research 失败是降级不是失败（§5.1）；新增 `BANYAN_ANSWER_TIMEOUT_S`（180 s）与 `BANYAN_ANSWER_LOOP_TOKENS`（100k）。

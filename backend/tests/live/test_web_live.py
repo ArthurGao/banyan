@@ -5,7 +5,8 @@
 -m llm:    the answer loop on each tool-capable model of BANYAN_ROLES_FILE (or the refs in
            BANYAN_LLM_TEST_MODELS, comma-separated), with a fake search and fetcher: every model
            must search, and cite the page it found as [W#] (design §12 B4: "all models behave the
-           same"). Never point it at llm-gateway subscription profiles.
+           same"). Point it at llm-gateway subscription profiles only when the owner asks (passed on
+           claude-sub through gateway v2.1, 2026-11-13).
 Without their configuration they fail rather than skip.
 """
 

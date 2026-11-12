@@ -119,6 +119,23 @@ async def test_row_4_needs_web_skips_the_judge_and_answers_with_web_tools() -> N
     assert out.detail("freshness") == {"needs_web": True}
 
 
+SEARCH_FIRST = "depends on current information: search the web before you answer"
+
+
+async def test_a_question_judged_time_sensitive_tells_the_model_to_search_first() -> None:
+    # The freshness verdict is code's routing decision; compose must hear it, not guess it
+    # (a live model skipped the search for a version question it judged unanswerable).
+    fresh = FakeLLM({Role.JUDGE_FRESHNESS: [FRESH], Role.ANSWER_COMPOSE: ["1.40 [W1]."]})
+    await WebRun(fresh)(ask_input())
+    assert SEARCH_FIRST in (fresh.calls_of(Role.ANSWER_COMPOSE)[0].instructions or "")
+    not_fresh = miss("From memory.")
+    await WebRun(not_fresh)(ask_input())
+    assert SEARCH_FIRST not in (not_fresh.calls_of(Role.ANSWER_COMPOSE)[0].instructions or "")
+    offline = FakeLLM({Role.JUDGE_FRESHNESS: [FRESH], Role.ANSWER_COMPOSE: ["Probably 1.39."]})
+    await WebRun(offline, web=False)(ask_input())
+    assert SEARCH_FIRST not in (offline.calls_of(Role.ANSWER_COMPOSE)[0].instructions or "")
+
+
 @pytest.mark.parametrize("why", ["allow_web=false", "no search provider"])
 async def test_row_4b_needs_web_without_the_web_warns_stale_risk(why: str) -> None:
     fake = FakeLLM({Role.JUDGE_FRESHNESS: [FRESH], Role.ANSWER_COMPOSE: ["Probably 1.39."]})
