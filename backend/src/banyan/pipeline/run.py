@@ -30,11 +30,14 @@ async def run_ask(inp: AskInput, deps: Deps) -> AskResult:
     fresh, found = await asyncio.gather(
         steps.freshness(inp, deps), steps.retrieve(inp, scopes, deps)
     )
-    await mark_skip_or("freshness", fresh.skipped_because, "ok", needs_web=fresh.needs_web)
+    freshness: dict[str, object] = {"needs_web": fresh.needs_web}
+    if fresh.needs_web and not steps.web_on(inp, deps):  # answered without the web (row 4b)
+        freshness["warning"] = "needs_web_but_web_disabled"
+    await mark_skip_or("freshness", fresh.skipped_because, "ok", **freshness)
 
     await mark(
         "retrieve", found.status, retrieval_ids=found.retrieval_ids,
-        entries=len(found.entries), memories=len(found.memories),
+        entries=len(found.entries), memories=len(found.memories), expired=len(deps.expired_seen),
     )  # fmt: skip
 
     verdict = await steps.judge(inp, fresh, found, deps)
@@ -45,7 +48,10 @@ async def run_ask(inp: AskInput, deps: Deps) -> AskResult:
 
     await mark("answer", "running")
     answered = await steps.answer(inp, fresh, found, verdict, deps)
-    deps.path[-1] = PathEntry(step="answer", status="ok", detail={"source": answered.source})
+    detail: dict[str, object] = {"source": answered.source}
+    if answered.tools:
+        detail["tools"] = answered.tools
+    deps.path[-1] = PathEntry(step="answer", status="ok", detail=detail)
     for citation in answered.citations:
         await deps.emit(CitationEvent(citation))
 
@@ -54,6 +60,6 @@ async def run_ask(inp: AskInput, deps: Deps) -> AskResult:
 
     return AskResult(
         answer=answered,
-        retrieval_ids=found.retrieval_ids,
+        retrieval_ids=[*found.retrieval_ids, *answered.retrieval_ids],
         jobs=written.jobs,
     )

@@ -4,7 +4,7 @@ Secrets come only from here (AGENTS.md rule 10).
 """
 
 from pathlib import Path
-from typing import Any, Self
+from typing import Any, Literal, Self
 from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     # A KB hit: `judge.sufficiency` says sufficient with at least this coverage (design §6.5).
     judge_threshold: float = Field(default=0.7, ge=0, le=1)
     judge_threshold_explain: float = Field(default=0.85, ge=0, le=1)
+    # Retrieval (design §6.2 step 3, §6.5): items kept and their estimated tokens.
+    retrieve_top_k: int = Field(default=8, ge=1, le=50)
+    context_budget: int = Field(default=3000, gt=0)
 
     # Jobs and the worker (design §4, §5.1.1).
     run_worker: bool = (
@@ -60,6 +63,23 @@ class Settings(BaseSettings):
     steward_review_key: SecretStr | None = None
     steward_timeout_s: float = Field(default=10.0, gt=0)
 
+    # The web (design §7.3, §6.5). No provider: no web tools; a time-sensitive answer is marked
+    # `stale_risk`. Tavily is the default provider (owner decision 2026-11-12).
+    search_provider: Literal["tavily"] | None = None
+    search_api_key: SecretStr | None = None
+    search_max_results: int = Field(default=5, ge=1, le=20)
+    fetch_max_tokens: int = Field(default=4000, gt=0)  # one fetched page, after extraction
+    fetch_max_bytes: int = Field(default=2_000_000, gt=0)  # one response body, before extraction
+    allow_private_urls: bool = False  # local tests only: lifts the outbound guard's address rule
+    web_valid_days: int = Field(default=90, gt=0)  # web-derived KB entries expire (design §8.2)
+    # The answer loop (answer.compose / node.explain with tools, design §6.2 step 5).
+    answer_max_steps: int = Field(default=6, ge=1, le=20)  # model requests in one answer
+    answer_max_tokens: int = Field(default=2000, gt=0)  # answer.compose output
+    answer_timeout_s: float = Field(default=180.0, gt=0)  # the whole loop, searches included
+    # The whole loop's tokens, input and output of every request (AGENTS.md rule 3: a hard
+    # token budget). Each request re-sends what came before, fetched pages included.
+    answer_loop_tokens: int = Field(default=100_000, gt=0)
+
     @field_validator("db_schema")
     @classmethod
     def _not_a_test_schema(cls, value: str) -> str:
@@ -70,7 +90,10 @@ class Settings(BaseSettings):
             )
         return value
 
-    @field_validator("steward_url", "steward_api_key", "steward_review_key", mode="before")
+    @field_validator(
+        "steward_url", "steward_api_key", "steward_review_key", "search_provider",
+        "search_api_key", mode="before",
+    )  # fmt: skip
     @classmethod
     def _blank_is_unset(cls, value: Any) -> Any:
         # `BANYAN_STEWARD_URL=` in a .env file arrives as "", not as an absent variable.
@@ -95,4 +118,10 @@ class Settings(BaseSettings):
             raise ValueError(
                 "steward_url is set: steward_api_key and steward_review_key are required too"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _search_complete(self) -> Self:
+        if self.search_provider is not None and self.search_api_key is None:
+            raise ValueError("search_provider is set: search_api_key is required too")
         return self

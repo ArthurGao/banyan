@@ -2,7 +2,8 @@
 You design study outlines for one learner. Return a tree of 6 to 15 top-level nodes, at most three
 levels deep. Every node has a short title and a one-sentence summary of what it covers. Order the
 nodes in the sequence the learner should study them, prerequisites first. Write titles and summaries
-in {{ language_name }}.
+in {{ language_name }}.{% if research %} Use the research below for what the subject covers and in
+what order it is usually taught; do not copy its wording. {{ sources_rule }}{% endif %}
 {% endblock %}
 {% block prompt %}
 Topic: {{ title }}
@@ -10,5 +11,10 @@ Topic: {{ title }}
 {% endif %}
 Level: {{ level }}
 {% if instructions %}Learner's notes for this topic: {{ instructions }}
+{% endif %}
+{% if research %}
+
+Research:
+{{ research }}
 {% endif %}
 {% endblock %}

@@ -3,9 +3,12 @@ feedback on cited knowledge, and deprecating what a wrong answer proposed. Run b
 write to steward is idempotent by the job's key (AGENTS.md rule 6)."""
 
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from sqlalchemy import ARRAY, Text, bindparam, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from banyan.llm import CallContext, Role, RoleClient, UsageCollector
@@ -49,6 +52,7 @@ async def propose(
             raise CollectionNotReady(f"topic {topic.id} has no steward collection yet")
         question = await branches.question_for(s, message) or ""
         source = message.source.value if message.source else "llm"
+        web = _web_provenance(message)
     material = wrap([SourceText("Q", "kb", question), SourceText("A", "kb", message.content_md)])
     prompt = render(
         "kb_draft_entry", topic_title=topic.title, node_title=node.title,
@@ -63,11 +67,11 @@ async def propose(
         )  # fmt: skip
         tags = [
             "app:banyan", f"topic:{topic.id}", f"node:{node.id}", f"source:{source}",
-            "author:ai", f"origin_message:{message_id}",
+            "author:ai", f"origin_message:{message_id}", *web.tags,
         ]  # fmt: skip
         # A source line for people and MCP readers of the entry (design §8.2).
         where = f"{topic.title} / {node.title}"
-        content = f"{draft.content}\n\n---\nSource: a Banyan answer ({source}), {where}"
+        content = f"{draft.content}\n\n---\nSource: a Banyan answer ({source}), {where}{web.line}"
         proposed = await steward.create_entry(
             topic.steward_collection_id, title=draft.title, content=content, tags=tags,
             risk_level=draft.risk_level, idempotency_key=idempotency_key,
@@ -85,6 +89,31 @@ async def propose(
         if wrong:
             await deprecate(steward, [proposed.entry_id], idempotency_key=idempotency_key)
     return proposed
+
+
+@dataclass(frozen=True)
+class _WebProvenance:
+    tags: list[str]  # url:, fetched_at:, valid_to: (design §8.2)
+    line: str  # the same for people and MCP readers of the entry
+
+
+def _web_provenance(message: Message) -> _WebProvenance:
+    urls = list(dict.fromkeys(c["url"] for c in message.citations if c.get("kind") == "web"))
+    if not urls:
+        return _WebProvenance([], "")
+    read = [
+        datetime.fromisoformat(c["fetched_at"]).date().isoformat()
+        for c in message.citations
+        if c.get("fetched_at")
+    ]
+    tags = [f"url:{u}" for u in urls]
+    tags += [f"fetched_at:{min(read)}"] if read else []
+    until = message.valid_to.date().isoformat() if message.valid_to else None
+    tags += [f"valid_to:{until}"] if until else []
+    listed = "".join(f"\n- {u}" for u in urls)
+    return _WebProvenance(
+        tags, f"\nWeb sources{f', valid until {until}' if until else ''}:{listed}"
+    )
 
 
 async def give_feedback(
@@ -123,6 +152,21 @@ async def deprecate(steward: StewardClient, entry_ids: list[str], *, idempotency
             if exc.status != 404:
                 raise
     return len(entry_ids)
+
+
+async def expired_entries(
+    sessions: async_sessionmaker[AsyncSession], entry_ids: list[str]
+) -> set[str]:
+    """Which of these entries Banyan proposed from a web answer whose `valid_to` has passed
+    (design §8.2). Entries other apps wrote are not Banyan's to expire."""
+    async with sessions() as s:
+        rows = await s.scalars(
+            select(func.unnest(Message.proposed_entry_ids)).where(
+                Message.valid_to < func.now(),
+                Message.proposed_entry_ids.op("&&")(bindparam("ids", entry_ids, ARRAY(Text))),
+            )
+        )
+        return set(rows) & set(entry_ids)
 
 
 async def _answer(s: AsyncSession, message_id: uuid.UUID) -> tuple[Message, Node, Topic]:

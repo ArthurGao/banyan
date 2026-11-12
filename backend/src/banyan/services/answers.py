@@ -12,7 +12,8 @@ import contextlib
 import logging
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from functools import partial
 
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -34,9 +35,18 @@ from banyan.models import (
 from banyan.pipeline import record
 from banyan.pipeline.events import DoneEvent, ErrorEvent, Event
 from banyan.pipeline.run import run_ask
-from banyan.pipeline.types import CHARS_PER_TOKEN, AskInput, Deps, Mode, Turn
-from banyan.services import branches, outline, topics
+from banyan.pipeline.types import (
+    CHARS_PER_TOKEN,
+    AnswerConfig,
+    AskInput,
+    Deps,
+    Mode,
+    Turn,
+    WebSource,
+)
+from banyan.services import branches, outline, proposals, topics
 from banyan.steward import StewardReader, collection_name
+from banyan.tools.web import Web
 
 log = logging.getLogger("banyan.answers")
 
@@ -62,8 +72,8 @@ class Runtime:
     # The sweeper fails `streaming` answers untouched for this long; a running one touches its
     # placeholder well within it, so only abandoned ones are swept (design §9).
     stale_s: float = 600.0
-    judge_threshold: float = 0.7
-    judge_threshold_explain: float = 0.85
+    config: AnswerConfig = field(default_factory=AnswerConfig)
+    web: Web | None = None
 
     @classmethod
     def from_settings(
@@ -72,10 +82,20 @@ class Runtime:
         steward: StewardReader | None,
         sessions: async_sessionmaker[AsyncSession],
         settings: Settings,
+        web: Web | None = None,
     ) -> "Runtime":
+        config = AnswerConfig(
+            top_k=settings.retrieve_top_k, context_budget=settings.context_budget,
+            judge_threshold=settings.judge_threshold,
+            judge_threshold_explain=settings.judge_threshold_explain,
+            answer_max_steps=settings.answer_max_steps,
+            answer_max_tokens=settings.answer_max_tokens,
+            answer_timeout_s=settings.answer_timeout_s, web_valid_days=settings.web_valid_days,
+            answer_loop_tokens=settings.answer_loop_tokens,
+        )  # fmt: skip
         return cls(
             llm, steward, sessions, settings.user_id, settings.history_budget,
-            settings.stream_stale_s, settings.judge_threshold, settings.judge_threshold_explain,
+            stale_s=settings.stream_stale_s, config=config, web=web,
         )  # fmt: skip
 
 
@@ -94,8 +114,9 @@ async def start_explain(s: AsyncSession, node_id: uuid.UUID) -> AskInput:
 
 
 async def start_ask(
-    s: AsyncSession, branch_id: uuid.UUID, question: str, *, history_budget: int
-) -> AskInput:
+    s: AsyncSession, branch_id: uuid.UUID, question: str, *, history_budget: int,
+    allow_web: bool = True,
+) -> AskInput:  # fmt: skip
     branch = await branches.get_branch(s, branch_id)
     if branch.closed_at is not None:
         raise Conflict("the branch is closed")
@@ -109,7 +130,9 @@ async def start_ask(
             content_md=question,
         )
     )
-    return await _ask_input(s, node, branch_id, question, _trim(history, history_budget))
+    return await _ask_input(
+        s, node, branch_id, question, _trim(history, history_budget), allow_web=allow_web
+    )
 
 
 async def start_reanswer(
@@ -147,14 +170,16 @@ async def _explain_input(s: AsyncSession, node: Node, branch_id: uuid.UUID) -> A
 
 
 async def _ask_input(
-    s: AsyncSession, node: Node, branch_id: uuid.UUID, question: str, history: list[Turn]
-) -> AskInput:
+    s: AsyncSession, node: Node, branch_id: uuid.UUID, question: str, history: list[Turn],
+    *, allow_web: bool = True,
+) -> AskInput:  # fmt: skip
     explained = await branches.explanation(s, node.id)
     placeholder = await _placeholder(s, branch_id)
     topic = await topics.get_topic(s, node.topic_id)
     return await _input(
         s, topic, node, placeholder, mode="ask", question=question, history=history,
         explanation=explained.content_md[:EXPLANATION_CONTEXT_CHARS] if explained else None,
+        allow_web=allow_web,
     )  # fmt: skip
 
 
@@ -164,7 +189,7 @@ async def stream_answer(inp: AskInput, rt: Runtime) -> AsyncIterator[Event]:
     queue: asyncio.Queue[Event | None] = asyncio.Queue()
     deps = Deps(
         llm=rt.llm, steward=rt.steward, emit=queue.put, user_id=rt.user_id,
-        judge_threshold=rt.judge_threshold, judge_threshold_explain=rt.judge_threshold_explain,
+        config=rt.config, web=rt.web, expired=partial(proposals.expired_entries, rt.sessions),
     )  # fmt: skip
     task = asyncio.create_task(_answer(inp, rt, deps, queue))
     try:
@@ -255,6 +280,7 @@ async def _input(
     outline_text: str = "",
     history: list[Turn] | None = None,
     explanation: str | None = None,
+    allow_web: bool = True,
 ) -> AskInput:
     active = await s.scalars(select(Topic.id).where(Topic.status == TopicStatus.ACTIVE))
     return AskInput(
@@ -265,6 +291,8 @@ async def _input(
         outline=outline_text, explanation=explanation, history=history or [],
         collection=collection_name(topic.id),
         all_collections=[collection_name(t) for t in active],
+        research=[WebSource.model_validate(r) for r in topic.research_sources],
+        allow_web=allow_web,
     )  # fmt: skip
 
 

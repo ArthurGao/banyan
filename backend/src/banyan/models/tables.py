@@ -121,6 +121,8 @@ class Message(Base):
             postgresql_where=text("status = 'streaming'"),
         ),
         Index("ix_messages_branch_created", "branch_id", "created_at"),
+        # Only web answers expire; retrieval asks which have (design §8.2).
+        Index("ix_messages_valid_to", "valid_to", postgresql_where=text("valid_to IS NOT NULL")),
     )
 
     branch_id: Mapped[uuid.UUID] = mapped_column(
@@ -136,6 +138,9 @@ class Message(Base):
     steward_retrieval_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     cited_entry_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
     proposed_entry_ids: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list)
+    # A web answer's knowledge expires (design §8.2); its proposed entries are then left out of
+    # retrieval and deprecated, because steward's EntryCreate cannot hold valid_to yet.
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     feedback: Mapped[Feedback] = mapped_column(
         enum_column(Feedback, "message_feedback"), default=Feedback.NONE
     )

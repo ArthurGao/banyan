@@ -62,7 +62,7 @@ async def generate_outline(
     failed role). 409 when the outline is confirmed, or exists and `replace` is false."""
     await generation.check_can_generate(s, topic_id, replace=replace)
     state = request.app.state
-    return sse.stream(generation.generate_outline(state.sessions, state.llm, topic_id))
+    return sse.stream(generation.generate_outline(state.sessions, state.llm, topic_id, state.web))
 
 
 @router.post("/topics/{topic_id}/outline/confirm")

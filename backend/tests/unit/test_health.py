@@ -67,3 +67,8 @@ async def test_steward_reporting_degraded_degrades_banyan() -> None:
 async def test_steward_ok_is_ok() -> None:
     report = await check_health(db_ok, FakeSteward())
     assert (report.status, report.checks.steward) == ("ok", "ok")
+
+
+async def test_a_configured_search_is_reported_without_a_probe() -> None:
+    report = await check_health(db_ok, None, search="ok")
+    assert (report.status, report.checks.search) == ("ok", "ok")

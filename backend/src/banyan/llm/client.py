@@ -4,15 +4,26 @@ attempt (design §7.2). There is no fallback: a failure raises `RoleError`."""
 import asyncio
 import os
 import time
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
-from pydantic_ai import Agent, capture_run_messages
-from pydantic_ai.exceptions import UnexpectedModelBehavior
-from pydantic_ai.messages import ModelMessage, ModelResponse
+from pydantic_ai import Agent, AgentRunResultEvent, capture_run_messages
+from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    ModelMessage,
+    ModelResponse,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+)
 from pydantic_ai.models import Model
+from pydantic_ai.settings import ModelSettings
+from pydantic_ai.toolsets import FunctionToolset
+from pydantic_ai.usage import UsageLimits
 
 from banyan.llm.config import ProviderConfig, RolesConfig
 from banyan.llm.roles import Role
@@ -21,6 +32,19 @@ from banyan.llm.usage import CallContext, ErrorKind, UsageCollector, UsageRecord
 T = TypeVar("T", bound=BaseModel)
 
 STRUCTURED_ATTEMPTS = 2  # the first try and one retry on invalid output, same model
+
+# A tool the answer loop may call (design §6.2): a plain async function whose parameters and
+# docstring describe it to the model. Callers outside banyan.llm never see Pydantic AI.
+Tool = Callable[..., Awaitable[str]]
+
+
+@dataclass(frozen=True)
+class ToolCalled:
+    """The model called a tool. Streamed between text chunks, in order: text before it was the
+    model thinking aloud, not the answer (the client drops it, design §9)."""
+
+    name: str
+    args: dict[str, Any]
 
 
 class RoleError(Exception):
@@ -46,6 +70,11 @@ class RoleClient:
     def __init__(self, models: Mapping[Role, RoleModel], *, timeout_s: float) -> None:
         self._models = dict(models)
         self._timeout_s = timeout_s
+        # One agent per role, built once (design §12 B4); instructions, output type and tools are
+        # given per call. Pydantic AI's own output retries are off: the role layer retries once.
+        self._agents: dict[Role, Agent[None, Any]] = {
+            role: Agent(m.model, retries={"output": 0}) for role, m in self._models.items()
+        }
 
     @classmethod
     def from_config(cls, config: RolesConfig, *, timeout_s: float) -> "RoleClient":
@@ -77,16 +106,15 @@ class RoleClient:
         context: CallContext,
         usage: UsageCollector,
     ) -> T:
-        m = self._model(role)
-        agent = Agent(
-            m.model, output_type=output_type, instructions=instructions, retries={"output": 0}
-        )
+        m, agent = self._model(role), self._agents[role]
         for number in range(1, STRUCTURED_ATTEMPTS + 1):
             attempt = _Attempt(role, m, number, context, usage)
             with capture_run_messages() as messages:
                 try:
                     async with asyncio.timeout(self._timeout_s):
-                        result = await agent.run(prompt)
+                        result = await agent.run(
+                            prompt, output_type=output_type, instructions=instructions
+                        )
                 except BaseException as exc:
                     error = attempt.failed(exc, messages)
                     if isinstance(error, RoleError) and error.kind == "validation":
@@ -106,25 +134,50 @@ class RoleClient:
         context: CallContext,
         usage: UsageCollector,
         validate: Callable[[str], None] | None = None,
-    ) -> AsyncIterator[str]:
-        """Text deltas as they arrive. The usage row is added when the stream ends, however it ends
-        (a cancelled or closed stream is `aborted`, design §9). `validate` checks the whole text
-        once it is in; raising ValueError makes the attempt a validation failure (`ok=false`), the
-        same as invalid structured output. A streamed answer is not retried: its tokens are out."""
-        m = self._model(role)
-        agent = Agent(m.model, instructions=instructions)
+        tools: Sequence[Tool] = (),
+        max_steps: int | None = None,
+        max_output_tokens: int | None = None,
+        max_total_tokens: int | None = None,
+        timeout_s: float | None = None,
+    ) -> AsyncIterator[str | ToolCalled]:
+        """Text deltas as they arrive and, with `tools`, a `ToolCalled` for each call, in order
+        (an agent loop, design §6.2). The final answer is the text after the last `ToolCalled`.
+        The usage row (one for the whole loop) is added when the stream ends, however it ends:
+        closed or cancelled is `aborted` (design §9); over `max_steps` requests or
+        `max_total_tokens` tokens is `budget`. `validate` checks the final answer; raising
+        ValueError makes the attempt a validation failure. A streamed answer is not retried:
+        its tokens are out."""
+        m, agent = self._model(role), self._agents[role]
+        settings: ModelSettings | None = (
+            {"max_tokens": max_output_tokens} if max_output_tokens else None
+        )
         attempt = _Attempt(role, m, 1, context, usage)
         with capture_run_messages() as messages:
             try:
-                async with asyncio.timeout(self._timeout_s):
-                    async with agent.run_stream(prompt) as result:
-                        parts: list[str] = []
-                        async for delta in result.stream_text(delta=True, debounce_by=None):
-                            parts.append(delta)
-                            yield delta
-                        run = result.usage
+                async with (
+                    asyncio.timeout(timeout_s or self._timeout_s),
+                    agent.run_stream_events(
+                        prompt, instructions=instructions, model_settings=settings,
+                        toolsets=[FunctionToolset(list(tools))] if tools else None,
+                        usage_limits=UsageLimits(
+                            request_limit=max_steps, total_tokens_limit=max_total_tokens
+                        ),
+                    ) as events,
+                ):  # fmt: skip
+                    # A response's tool calls run after the response ends, so all its text
+                    # comes before the `ToolCalled`: the client's reset there drops it all.
+                    async for event in events:
+                        match event:
+                            case PartStartEvent(part=TextPart(content=text)) if text:
+                                yield text
+                            case PartDeltaEvent(delta=TextPartDelta(content_delta=text)) if text:
+                                yield text
+                            case FunctionToolCallEvent(part=call):
+                                yield ToolCalled(call.tool_name, call.args_as_dict())
+                            case AgentRunResultEvent(result=result):
+                                output, run = result.output, result.usage
                 if validate is not None:
-                    validate("".join(parts))
+                    validate(output)
             except BaseException as exc:
                 raise attempt.failed(exc, messages) from exc
         attempt.succeeded(run.input_tokens, run.output_tokens)
@@ -181,6 +234,8 @@ def _classify(exc: BaseException) -> ErrorKind:
         return "aborted"
     if isinstance(exc, TimeoutError):
         return "timeout"
+    if isinstance(exc, UsageLimitExceeded):
+        return "budget"
     if isinstance(exc, UnexpectedModelBehavior | ValueError):
         # Pydantic AI's "output did not validate" (output retries are 0), or a stream's `validate`
         return "validation"

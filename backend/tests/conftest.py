@@ -33,6 +33,7 @@ from banyan.main import create_app
 from banyan.models import Base
 from banyan.steward import FakeSteward
 from banyan.storage.db import engine_scope, session_factory
+from banyan.tools.web import Web
 from banyan.worker.context import WorkerContext
 from banyan.worker.handlers import handlers
 from banyan.worker.run import queue_for
@@ -118,10 +119,19 @@ async def api(migrated_url: str, fake_llm: FakeLLM) -> AsyncIterator[httpx.Async
 
 @asynccontextmanager
 async def client_for(
-    url: str, llm: FakeLLM | None = None, *, token: str | None = None
+    url: str,
+    llm: FakeLLM | None = None,
+    *,
+    token: str | None = None,
+    web: Web | None = None,
+    steward: FakeSteward | None = None,
 ) -> AsyncIterator[httpx.AsyncClient]:
-    """An in-process client of the app on `url`, with FakeSteward and `llm` (default: FakeLLM)."""
-    app = create_app(settings_for(url), steward=FakeSteward(), llm=(llm or FakeLLM()).client())
+    """An in-process client of the app on `url`, with `steward` (default: an empty FakeSteward)
+    and `llm` (default: FakeLLM); no web unless `web` is given."""
+    app = create_app(
+        settings_for(url), steward=steward or FakeSteward(), llm=(llm or FakeLLM()).client(),
+        web=web,
+    )  # fmt: skip
     async with app_client(app, token=token) as client:
         yield client
 
@@ -155,6 +165,7 @@ async def create_node(
 
 
 NOT_FRESH = '{"needs_web": false}'
+FRESH = '{"needs_web": true}'
 
 
 async def explained_node(
@@ -169,6 +180,13 @@ async def explained_node(
     await api.post(f"/v1/nodes/{node['id']}/explain")
     message_id: str = (await api.get(f"/v1/nodes/{node['id']}")).json()["explanation"]["id"]
     return topic["id"], node["id"], message_id
+
+
+async def create_branch(api: httpx.AsyncClient, node_id: str, title: str = "Q") -> str:
+    created = await api.post(f"/v1/nodes/{node_id}/branches", json={"title": title})
+    assert created.status_code == 201, created.text
+    branch_id: str = created.json()["id"]
+    return branch_id
 
 
 def sse_events(body: str) -> list[tuple[str, dict[str, Any]]]:

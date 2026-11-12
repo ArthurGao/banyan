@@ -3,6 +3,7 @@ kb_deprecate through the worker, on FakeSteward."""
 
 import json
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -16,6 +17,7 @@ from banyan.models import (
     Message,
     MessageRole,
     MessageStatus,
+    Source,
     UsageLog,
     enqueue,
 )
@@ -219,3 +221,34 @@ async def test_an_answer_marked_wrong_while_it_was_proposed_is_deprecated_by_the
     steward.create_entry = create_then_wrong  # type: ignore[method-assign]
     assert await run_kind(ctx, JobKind.KB_PROPOSE) == "done"
     assert [e.status for e in steward.entries.values()] == ["deprecated"]
+
+
+async def test_a_web_answer_is_proposed_with_its_urls_and_expiry(
+    api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions, migrated_url: str
+) -> None:
+    _, _, message_id = await explained(api, fake_llm)
+    async with db() as s:  # make the explanation a web answer citing two pages
+        message = await s.get(Message, uuid.UUID(message_id))
+        assert message is not None
+        message.source = Source.WEB
+        message.citations = [
+            {"kind": "web", "url": "https://a.example/x", "title": "A",
+             "fetched_at": "2026-11-10T09:00:00+00:00"},
+            {"kind": "web", "url": "https://b.example/y", "title": "B",
+             "fetched_at": "2026-11-11T09:00:00+00:00"},
+        ]  # fmt: skip
+        message.valid_to = datetime(2027, 2, 8, 9, tzinfo=UTC)
+        await s.commit()
+    steward = FakeSteward()
+    ctx = worker_ctx(db, migrated_url, FakeLLM({Role.KB_DRAFT_ENTRY: [draft()]}), steward)
+    await run_kind(ctx, JobKind.COLLECTION_ENSURE)
+    assert await run_kind(ctx, JobKind.KB_PROPOSE) == "done"
+    (entry,) = steward.entries.values()
+    assert entry.tags[3:4] == ["source:web"]
+    assert entry.tags[-4:] == [
+        "url:https://a.example/x",
+        "url:https://b.example/y",
+        "fetched_at:2026-11-10",
+        "valid_to:2027-02-08",
+    ]
+    assert "https://a.example/x" in entry.content and "valid until 2027-02-08" in entry.content

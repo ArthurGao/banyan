@@ -38,7 +38,10 @@ async def done(
             content_md=result.answer.content, source=result.answer.source,
             provenance=",".join(result.answer.roles),
             steward_retrieval_ids=result.retrieval_ids, cited_entry_ids=result.cited_entry_ids,
-            citations=[c.model_dump(exclude_none=True) for c in result.answer.citations],
+            citations=[
+                c.model_dump(mode="json", exclude_none=True) for c in result.answer.citations
+            ],
+            valid_to=result.answer.valid_to,
         )  # fmt: skip
         if not committed:
             return False

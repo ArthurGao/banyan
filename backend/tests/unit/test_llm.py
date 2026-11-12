@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from banyan.llm import CallContext, Role, RoleError, UsageCollector, load_roles
-from banyan.llm.fakes import FakeLLM
+from banyan.llm import CallContext, Role, RoleError, ToolCalled, UsageCollector, load_roles
+from banyan.llm.fakes import FakeLLM, ToolCall
 
 CTX = CallContext(path_kind="test")
 
@@ -213,3 +213,110 @@ def test_the_role_layers_error_kinds_are_the_databases() -> None:
     from banyan.models import ErrorKind as StoredErrorKind
 
     assert set(get_args(ErrorKind)) == {k.value for k in StoredErrorKind}
+
+
+async def collect(fake: FakeLLM, usage: UsageCollector, **kw: object) -> list[object]:
+    stream = fake.client().stream(
+        Role.ANSWER_COMPOSE, instructions="answer", prompt="q", context=CTX, usage=usage, **kw
+    )  # type: ignore[arg-type]
+    return [item async for item in stream]
+
+
+def texts_and_calls(items: list[object]) -> list[object]:
+    """Adjacent text chunks joined, so the assertion does not depend on chunk sizes."""
+    out: list[object] = []
+    for item in items:
+        if isinstance(item, str) and out and isinstance(out[-1], str):
+            out[-1] += item
+        else:
+            out.append(item)
+    return out
+
+
+async def test_a_tool_loop_reports_each_call_in_order_and_returns_the_final_answer() -> None:
+    searched: list[str] = []
+
+    async def web_search(query: str) -> str:
+        """Search the web."""
+        searched.append(query)
+        return "W1: Kubernetes 1.40 is the latest release."
+
+    usage = UsageCollector()
+    fake = FakeLLM(
+        {
+            Role.ANSWER_COMPOSE: [
+                ToolCall("web_search", {"query": "latest kubernetes"}, preamble="Let me look. "),
+                "It is 1.40 [W1].",
+            ]
+        }
+    )
+    items = await collect(fake, usage, tools=[web_search], max_steps=4)
+    # The text before the call streams too; the client drops it at the `tool` event (design §9).
+    assert texts_and_calls(items) == [
+        "Let me look. ",
+        ToolCalled("web_search", {"query": "latest kubernetes"}),
+        "It is 1.40 [W1].",
+    ]
+    assert searched == ["latest kubernetes"]
+    assert fake.calls_of(Role.ANSWER_COMPOSE)[1].tool_returns == [
+        "W1: Kubernetes 1.40 is the latest release."
+    ]
+    assert rows(usage) == [("answer.compose", 1, True, None)]  # one row for the whole loop
+    assert usage.input_tokens > 0
+
+
+async def test_a_loop_over_its_step_budget_fails_as_budget_and_keeps_its_usage() -> None:
+    async def web_search(query: str) -> str:
+        """Search the web."""
+        return "nothing"
+
+    usage = UsageCollector()
+    fake = FakeLLM({Role.ANSWER_COMPOSE: [ToolCall("web_search", {"query": "x"})] * 5})
+    with pytest.raises(RoleError) as caught:
+        await collect(fake, usage, tools=[web_search], max_steps=2)
+    assert caught.value.kind == "budget"
+    assert rows(usage) == [("answer.compose", 1, False, "budget")]
+    assert usage.input_tokens > 0  # the two requests made are paid for
+
+
+async def test_the_output_cap_reaches_the_model() -> None:
+    usage = UsageCollector()
+    fake = FakeLLM({Role.ANSWER_COMPOSE: ["short"]})
+    await collect(fake, usage, max_output_tokens=2000)
+    assert fake.calls_of(Role.ANSWER_COMPOSE)[0].max_tokens == 2000
+
+
+async def test_a_validated_stream_checks_the_final_answer_only() -> None:
+    async def web_search(query: str) -> str:
+        """Search the web."""
+        return "W1: x"
+
+    seen: list[str] = []
+    usage = UsageCollector()
+    fake = FakeLLM(
+        {Role.ANSWER_COMPOSE: [ToolCall("web_search", {"query": "x"}, preamble="Hmm. "), "Done."]}
+    )
+    await collect(fake, usage, tools=[web_search], validate=seen.append)
+    assert seen == ["Done."]
+
+
+async def test_a_loop_over_its_total_token_budget_fails_as_budget() -> None:
+    async def web_search(query: str) -> str:
+        """Search the web."""
+        return "a result " * 50
+
+    usage = UsageCollector()
+    fake = FakeLLM(
+        {
+            Role.ANSWER_COMPOSE: [
+                ToolCall("web_search", {"query": "x"}),
+                ToolCall("web_search", {"query": "y"}),
+                "Done.",
+            ]
+        }
+    )
+    with pytest.raises(RoleError) as caught:
+        # Each request is small; together they pass the loop's total.
+        await collect(fake, usage, tools=[web_search], max_steps=10, max_total_tokens=150)
+    assert caught.value.kind == "budget"
+    assert rows(usage) == [("answer.compose", 1, False, "budget")]

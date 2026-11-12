@@ -35,6 +35,16 @@ class TokenEvent:
 
 
 @dataclass(frozen=True)
+class ToolEvent:
+    """The answer loop called a tool (design §9). Tokens sent before it were the model thinking
+    aloud: the answer is the tokens after the last one."""
+
+    name: str
+    query: str | None = None
+    url: str | None = None
+
+
+@dataclass(frozen=True)
 class CitationEvent:
     """One source the answer cites (design §9), sent once the answer is complete."""
 
@@ -62,4 +72,4 @@ class ErrorEvent:
     message: str
 
 
-Event = PathEvent | TokenEvent | CitationEvent | OutlineEvent | DoneEvent | ErrorEvent
+Event = PathEvent | TokenEvent | ToolEvent | CitationEvent | OutlineEvent | DoneEvent | ErrorEvent

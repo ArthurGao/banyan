@@ -2,8 +2,9 @@
 so tests run the real role layer (timeouts, the validation retry, usage rows) without a vendor.
 
 A script entry is the text the model returns (JSON for structured roles), an exception to raise,
-or a callable that gets the prompt. When a role's queue is empty the `default` answers; without
-one the call fails, so a test never gets an answer it did not script.
+a callable that gets the prompt, or a `ToolCall` (one model request of an answer loop that calls a
+tool; the next entry answers once the tool has returned). When a role's queue is empty the
+`default` answers; without one the call fails, so a test never gets an answer it did not script.
 """
 
 import asyncio
@@ -16,16 +17,28 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelResponse,
+    ModelResponsePart,
     TextPart,
     ToolCallPart,
+    ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.models.function import AgentInfo, FunctionModel
+from pydantic_ai.models.function import AgentInfo, DeltaToolCall, FunctionModel
 
 from banyan.llm.client import RoleClient, RoleModel
 from banyan.llm.roles import Role
 
-Script = str | BaseException | Callable[[str], str]
+
+@dataclass(frozen=True)
+class ToolCall:
+    """A scripted model request that calls `name` with `args`, after saying `preamble`."""
+
+    name: str
+    args: dict[str, object]
+    preamble: str = ""
+
+
+Script = str | BaseException | Callable[[str], str] | ToolCall
 STREAM_CHUNK = 12
 
 
@@ -34,6 +47,9 @@ class FakeCall:
     role: Role
     instructions: str | None
     prompt: str
+    tool_returns: list[str] = field(default_factory=list)  # what the tools answered just before
+    max_tokens: int | None = None
+    tools: list[str] = field(default_factory=list)  # the tools the model was offered
 
 
 @dataclass
@@ -68,22 +84,48 @@ class FakeLLM:
     def _model(self, role: Role) -> FunctionModel:
         async def respond(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
             await asyncio.sleep(self.delay_s)
-            text = self._next(role, messages, info)
+            answer = self._next(role, messages, info)
+            if isinstance(answer, ToolCall):
+                parts: list[ModelResponsePart] = (
+                    [TextPart(answer.preamble)] if answer.preamble else []
+                )
+                parts.append(ToolCallPart(answer.name, answer.args, tool_call_id=self._call_id()))
+                return ModelResponse(parts=parts)
             if info.output_tools:
-                return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, text)])
-            return ModelResponse(parts=[TextPart(text)])
+                return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, answer)])
+            return ModelResponse(parts=[TextPart(answer)])
 
-        async def stream(messages: list[ModelMessage], info: AgentInfo) -> AsyncIterator[str]:
-            text = self._next(role, messages, info)
+        async def stream(
+            messages: list[ModelMessage], info: AgentInfo
+        ) -> AsyncIterator[str | dict[int, DeltaToolCall]]:
+            answer = self._next(role, messages, info)
+            text = answer.preamble if isinstance(answer, ToolCall) else answer
             for i in range(0, len(text), STREAM_CHUNK):
                 await asyncio.sleep(self.delay_s)
                 yield text[i : i + STREAM_CHUNK]
+            if isinstance(answer, ToolCall):
+                yield {
+                    1: DeltaToolCall(
+                        name=answer.name, json_args=json.dumps(answer.args),
+                        tool_call_id=self._call_id(),
+                    )
+                }  # fmt: skip
 
         return FunctionModel(respond, stream_function=stream, model_name=f"fake-{role.value}")
 
-    def _next(self, role: Role, messages: list[ModelMessage], info: AgentInfo) -> str:
+    def _call_id(self) -> str:
+        self._calls_made = getattr(self, "_calls_made", 0) + 1
+        return f"call-{self._calls_made}"
+
+    def _next(self, role: Role, messages: list[ModelMessage], info: AgentInfo) -> str | ToolCall:
         prompt = _last_prompt(messages)
-        self.calls.append(FakeCall(role, info.instructions, prompt))
+        settings = info.model_settings or {}
+        self.calls.append(
+            FakeCall(
+                role, info.instructions, prompt, _tool_returns(messages),
+                settings.get("max_tokens"), [t.name for t in info.function_tools],
+            )
+        )  # fmt: skip
         queue = self._queues[role]
         script: Script
         if queue:
@@ -94,6 +136,8 @@ class FakeLLM:
             raise AssertionError(f"FakeLLM: no script left for {role.value}")
         if isinstance(script, BaseException):
             raise script
+        if isinstance(script, ToolCall):
+            return script
         return script(prompt) if callable(script) else script
 
 
@@ -104,6 +148,13 @@ def _last_prompt(messages: list[ModelMessage]) -> str:
                 if isinstance(part, UserPromptPart) and isinstance(part.content, str):
                     return part.content
     return ""
+
+
+def _tool_returns(messages: list[ModelMessage]) -> list[str]:
+    last = messages[-1] if messages else None
+    if not isinstance(last, ModelRequest):
+        return []
+    return [str(p.content) for p in last.parts if isinstance(p, ToolReturnPart)]
 
 
 def demo_answers(role: Role, prompt: str) -> str:

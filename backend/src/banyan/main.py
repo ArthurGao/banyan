@@ -16,8 +16,12 @@ from banyan.api import errors, system, v1
 from banyan.config import Settings
 from banyan.llm import RoleClient, load_roles
 from banyan.llm.fakes import FakeLLM, demo_answers
+from banyan.pipeline.types import CHARS_PER_TOKEN
 from banyan.steward import FakeSteward, HttpStewardClient, StewardClient
 from banyan.storage.db import create_engine, session_factory
+from banyan.tools.fetch import Fetcher
+from banyan.tools.search.tavily import TavilySearch
+from banyan.tools.web import Web, demo_web
 from banyan.worker.context import WorkerContext
 from banyan.worker.run import run as run_worker
 from banyan.worker.sweep import sweep_stale_streams
@@ -46,19 +50,24 @@ def create_app(
     *,
     steward: StewardClient | None = None,
     llm: RoleClient | None = None,
+    web: Web | None = None,
 ) -> FastAPI:
-    """`steward` and `llm` replace the clients built from settings (tests pass fakes)."""
+    """`steward`, `llm` and `web` replace the clients built from settings (tests pass fakes)."""
     resolved = settings or Settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        async with worker_context(resolved, steward=steward, llm=llm) as (engine, ctx):
+        async with worker_context(resolved, steward=steward, llm=llm, web=web) as (engine, ctx):
             app.state.settings = resolved
             app.state.engine = engine
             app.state.sessions = ctx.sessions
             app.state.llm = ctx.llm
-            app.state.role_status = "fake" if resolved.fakes and llm is None else "ok"
+            app.state.role_status = _status(configured=True, faked=resolved.fakes and llm is None)
             app.state.steward = ctx.steward
+            app.state.web = ctx.web
+            app.state.search_status = _status(
+                configured=ctx.web is not None, faked=resolved.fakes and web is None
+            )
             stop = asyncio.Event()
             worker = asyncio.create_task(run_worker(ctx, stop)) if resolved.run_worker else None
             try:
@@ -73,7 +82,11 @@ def create_app(
 
 @asynccontextmanager
 async def worker_context(
-    settings: Settings, *, steward: StewardClient | None = None, llm: RoleClient | None = None
+    settings: Settings,
+    *,
+    steward: StewardClient | None = None,
+    llm: RoleClient | None = None,
+    web: Web | None = None,
 ) -> AsyncIterator[tuple[AsyncEngine, WorkerContext]]:
     """The database, the role client and steward, for the API and for `banyan worker`. Answers
     left streaming by a process that died are failed first (design §9)."""
@@ -84,6 +97,7 @@ async def worker_context(
         llm=llm or _llm_from(settings),
         steward=steward or owned or (FakeSteward() if settings.fakes else None),
         settings=settings,
+        web=web or _web_from(settings),
     )
     try:
         try:
@@ -108,6 +122,25 @@ def _llm_from(settings: Settings) -> RoleClient:
         raise RuntimeError("BANYAN_ROLES_FILE is not set (or set BANYAN_FAKES=1 for development)")
     config = load_roles(settings.roles_file)
     return RoleClient.from_config(config, timeout_s=settings.role_timeout_s)
+
+
+def _status(*, configured: bool, faked: bool) -> str:
+    """A component's /health state from how it was built (no probe)."""
+    return "not_configured" if not configured else "fake" if faked else "ok"
+
+
+def _web_from(settings: Settings) -> Web | None:
+    if settings.fakes:
+        return demo_web()
+    if settings.search_provider is None:
+        return None
+    assert settings.search_api_key is not None  # Settings requires it with a provider
+    fetcher = Fetcher(
+        max_bytes=settings.fetch_max_bytes,
+        max_chars=settings.fetch_max_tokens * CHARS_PER_TOKEN,
+        allow_private=settings.allow_private_urls,
+    )
+    return Web(TavilySearch(settings.search_api_key), fetcher, settings.search_max_results)
 
 
 def _steward_from(settings: Settings) -> HttpStewardClient | None:

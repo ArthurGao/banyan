@@ -93,3 +93,10 @@ def test_the_api_token_is_required_and_not_trivially_short() -> None:
         Settings(_env_file=None, database_url=URL)  # type: ignore[call-arg]
     with pytest.raises(ValidationError, match="api_token"):
         Settings(_env_file=None, database_url=URL, api_token="short")  # type: ignore[arg-type]
+
+
+def test_a_search_provider_without_its_key_fails_at_startup() -> None:
+    with pytest.raises(ValidationError, match="search_api_key is required"):
+        Settings(_env_file=None, database_url=URL, api_token=TOKEN, search_provider="tavily")  # type: ignore[arg-type]
+    blank = Settings(_env_file=None, database_url=URL, api_token=TOKEN, search_provider="")  # type: ignore[arg-type]
+    assert blank.search_provider is None  # `BANYAN_SEARCH_PROVIDER=` in .env is unset

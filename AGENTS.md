@@ -38,8 +38,8 @@ If a change must contradict the design, update the design in the same change and
 
 ## Current stage
 
-**B3 — steward integration, KB first — backend done** (the screens are another session's). B4
-(web) next. Track the checklist in design §12; ticked items are done and verified. Open
+**B4 — web (search, fetch, the answer loop) — backend done** (the screens are another session's).
+B5 (memory and topic instructions) next. Track the checklist in design §12; ticked items are done and verified. Open
 questions are in design §13 — do not decide them silently; ask, or implement the conservative option
 behind config.
 

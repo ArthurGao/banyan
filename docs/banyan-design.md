@@ -173,6 +173,7 @@ messages
   proposed_entry_ids text[]      -- 由本答案的 kb_propose 任务创建的条目 id，任务完成后由 worker 回写（写入前为空）
   feedback (none|good|wrong|incomplete), feedback_note
   superseded_by (nullable)   -- 反馈后重答，旧消息指向新消息
+  valid_to (nullable)        -- web / mixed 答案的知识有效期：所引网页最早的 fetched_at + BANYAN_WEB_VALID_DAYS（B4，§8.2）
 
 node_notes
   node_id (unique), content jsonb, version int
@@ -226,7 +227,7 @@ exports
 
 1. **输入课题**：用户在对话框里输入要学什么，例如“我想学 Java”。
 2. **固定的几个澄清问题**：目标、当前水平、语言。问题由前端按固定顺序以对话气泡呈现，有默认值、可跳过，不调用 LLM；答案写入 `topics.goal / level / language`。
-3. **生成大纲**：`outline.generate`（强模型）返回结构化大纲：2–3 层、建议 6–15 个顶层节点，每个节点带一句 summary。`allow_web=true` 时（B4 起）先联网**一次**检索课程大纲与权威资料，结果存入 `topics.research_sources`，后面所有节点的讲解共享这份资料，不再逐节点重复检索同类内容。
+3. **生成大纲**：`outline.generate`（强模型）返回结构化大纲：2–3 层、建议 6–15 个顶层节点，每个节点带一句 summary。配置了搜索 provider 时（B4 起）先联网**一次**（查询 `<标题> <目标> learning path`，6 条结果）检索课程大纲与权威资料，作为 `W#` 资料放进大纲 prompt，结果存入 `topics.research_sources`（重新生成时替换）；后面所有节点的讲解与提问都把这份资料放进初始上下文、`web_fetch` 白名单包含其 URL，不再逐节点重复检索同类内容。SSE `path` 多一步 `research`（`ok` / `unavailable`）。搜索失败不算大纲失败：照常生成，`research: unavailable`，`done.warnings=["research_unavailable"]`（与第 8 行同类的降级）。
 4. **编辑并确认大纲**：增删、重命名、拖动排序、插入前置节点（`origin=prerequisite`）。用户点“确认大纲”后 `outline_status=confirmed`。**确认之前不生成任何讲解**，避免为将被删改的节点花钱。
 5. **选择讲解生成方式**（`topics.explain_mode`，之后可随时修改）：
 
@@ -306,7 +307,7 @@ AskRequest:
      retrieval_id；steward 的 `document` 类结果只有 item_id，没有 entry_id）与 `cited_entry_ids`，并在答案完成后、writeback 之前逐条发 SSE `citation`。**一条有效引用都没有 → 当作失败答案（第 7 行），不改走 compose**（owner 2026-11-12 决定：没有出处的答案
      不进笔记、不进 KB）。未命中时 judge 给出的 `missing` 放进 compose / node.explain 的 prompt。B3 起 freshness 与 retrieve 并发，三个检索范围也并发、
      按近到远合并去重、截到 `top_k`，合并后的总量也不超过 `BANYAN_CONTEXT_BUDGET`（每个范围向 steward 各要一份完整预算）。
-   - 未命中或跳过 judge → `answer.compose`（`mode=explain` 时为 `node.explain`；强模型，agent loop）：工具 `kb_search`，以及 `allow_web=true` 时的 `web_search`、`web_fetch`；检索结果与 `missing` 作为初始上下文；`max_steps`、`max_tokens` 受预算限制。`source`：未调用 web 工具 → `llm`；调用了 web 且答案主要来自 web → `web`；两者兼有 → `mixed`（由 compose 的结构化输出自报，代码校验：声明 `web`/`mixed` 时必须至少有一个 web citation，否则降为 `llm`）。
+   - 未命中或跳过 judge → `answer.compose`（`mode=explain` 时为 `node.explain`；强模型，agent loop）：工具 `kb_search`，以及 `allow_web=true` 时的 `web_search`、`web_fetch`；检索结果与 `missing` 作为初始上下文；`max_steps`、`max_tokens` 受预算限制。资料编号：知识库条目 `S1…`（检索到的、`kb_search` 找到的），记忆 `M1…`（只作上下文），网页 `W1…`（主题的 research、`web_search` 结果、`web_fetch` 读过的页）；答案用 `[S#]` / `[W#]` 引用。`source` **由代码按引用决定**（B4 起；原设计是 compose 自报再校验，效果相同、少一条规则）：引用了 `[W#]` 且没有 `[S#]` → `web`；两者都有 → `mixed`；没有 `[W#]` → `llm`。web citation 为 `{kind: web, url, title, fetched_at}`，`fetched_at` 取实际读页时间（只看过搜索摘要时为搜索时间）。工具做不成事（搜索失败、URL 被拒、抓取失败）时把原因作为工具结果交给模型，记入 `path.answer.detail.tools`（每次调用：名称、query 或 url、状态，失败时附原因），不算 role 失败；格式错误的 URL 也是被拒，不是失败；超过 `BANYAN_ANSWER_MAX_STEPS` 次模型请求或 `BANYAN_ANSWER_LOOP_TOKENS` 总 token 是 `budget` 失败（第 7 行）。整个循环的超时是 `BANYAN_ANSWER_TIMEOUT_S`（默认 180 s，含搜索与抓取）。
    - `needs_web` 且 `allow_web=false`：仍走 compose（无 web 工具），`path.freshness.detail = "needs_web_but_web_disabled"`，SSE `done` 带 `warnings: ["stale_risk"]`，前端在消息上显示"未联网，可能过时"。不拒答。
 6. **writeback**（同一事务入队）：
    - 来源为 `llm` / `web` / `mixed` 的答案 → `kb_propose`：由 `kb.draft_entry` 把“问题 + 答案”整理为知识条目（§8.2 的 tags 编码），web 来源额外带 `url`、`fetched_at`、`valid_to`（默认 90 天，`BANYAN_WEB_VALID_DAYS`）。
@@ -361,6 +362,8 @@ AskRequest:
 | web_fetch 单页截断 | 4,000 tokens | `BANYAN_FETCH_MAX_TOKENS` |
 | judge 命中阈值（提问 / 讲解） | 0.7 / 0.85 | `BANYAN_JUDGE_THRESHOLD` / `BANYAN_JUDGE_THRESHOLD_EXPLAIN` |
 | role 调用超时 | 60 s | `BANYAN_ROLE_TIMEOUT_S`（可按 role 覆盖） |
+| 带工具的作答循环超时（含搜索、抓取） | 180 s | `BANYAN_ANSWER_TIMEOUT_S` |
+| 带工具的作答循环总 token（每次请求的输入 + 输出之和；每步都重发前文与抓到的页） | 100,000 | `BANYAN_ANSWER_LOOP_TOKENS` |
 | web 来源条目有效期 | 90 天 | `BANYAN_WEB_VALID_DAYS` |
 | 任务租约 / 最大尝试 | 5 min / 6 | `BANYAN_JOB_LEASE` / `BANYAN_JOB_MAX_ATTEMPTS`（退避总和须 < 24 h，§4） |
 | 全部生成：整次预算 / 并发 | 500,000 tokens / 2 | `BANYAN_BULK_MAX_TOKENS` / `BANYAN_BULK_CONCURRENCY` |
@@ -430,12 +433,12 @@ Fetcher
   fetch(url) -> FetchedPage{url, title, text_md, fetched_at}   -- 正文抽取后转 Markdown，截断到预算
 ```
 
-默认 provider 由配置决定（Tavily / Exa / Brave 之一，见 §13）。所有模型通过同一组工具联网，结果格式统一，KB 入库格式统一。
+provider 由配置决定（`BANYAN_SEARCH_PROVIDER`；**默认 Tavily**，owner 2026-11-12 决定，§13 第 1 项）；未配置时没有 web 工具，`/health` 的 search 为 `not_configured`（配置了只报 `ok`，不为探活花 credit）。Tavily：`POST https://api.tavily.com/search`，`search_depth=basic`（1 credit），只有 `tools/search/tavily.py` 知道它的格式。Fetcher 只读 `text/html` / `text/plain`，正文用 trafilatura 抽取为 Markdown（去掉导航、页脚、评论）后截断到 `BANYAN_FETCH_MAX_TOKENS`。所有模型通过同一组工具联网，结果格式统一，KB 入库格式统一。
 
 `web_fetch` 的两层限制：
 
 1. **白名单**：只允许抓取本轮 `web_search` 返回的 URL 或用户消息中出现的 URL，防止模型构造任意请求。
-2. **出站防护**（用户消息里的 URL 不可信，可能指向 `127.0.0.1:8600` 的 steward admin、Ollama 或云元数据地址）：只允许 `https`；解析主机名后所有地址必须是公网地址（拒绝私网、回环、链路本地、CGNAT、组播、保留地址，以及写成 IPv6 的 IPv4）；连接发往校验过的 IP，主机名只用于 SNI 与 `Host`（防 DNS rebinding）；重定向最多 3 跳且每跳重新校验；响应体有大小上限。实现照搬 steward 的 `outbound.py`（steward 设计 §11 P5c）。`BANYAN_ALLOW_PRIVATE_URLS=true` 仅供本地测试。
+2. **出站防护**（用户消息里的 URL 不可信，可能指向 `127.0.0.1:8600` 的 steward admin、Ollama 或云元数据地址）：只允许 `https`；解析主机名后所有地址必须是公网地址（拒绝私网、回环、链路本地、CGNAT、组播、保留地址，以及写成 IPv6 的 IPv4）；连接发往校验过的 IP，主机名只用于 SNI 与 `Host`（防 DNS rebinding）；重定向最多 3 跳且每跳重新校验；响应体有大小上限。实现照搬 steward 的 `outbound.py`（steward 设计 §11 P5c），移植到 httpx：`banyan/tools/outbound.py`，连同它的测试。`BANYAN_ALLOW_PRIVATE_URLS=true` 仅供本地测试。
 
 ## 8. llm-steward 集成
 
@@ -484,7 +487,7 @@ Fetcher
 |---|---|
 | Topic | collection（每个主题一个，名字 `topic-<topic_id>`，检索按名字匹配；`review_policy` 见 §8.1） |
 | 节点问答、讲解 | KB entry。tags：`app:banyan`、`topic:<topic_id>`、`node:<node_id>`、`source:<kb\|llm\|web\|mixed>`、`author:ai`、`origin_message:<message_id>`；web 来源另加 `url:<url>`（每个 URL 一个 tag）、`fetched_at:<ISO date>`、`valid_to:<ISO date>`。`content` 正文末尾附一行 Markdown 来源列表，供人阅读与 MCP 消费者（§8.6） |
-| web 来源的有效期 | **v1 由 Banyan 自己过滤**：检索结果中 `valid_to:` tag 已过期的条目不作为知识计入 judge，并入队 `kb_deprecate`。真正的有效期窗口需要 steward 在 `EntryCreate` 增加 `valid_to`（steward 变更需求，§13） |
+| web 来源的有效期 | **v1 由 Banyan 自己过滤**。检索返回的 item 不带 tags（B0 spike），所以过滤靠 Banyan 自己的记录：`messages.valid_to` 已过的答案，其 `proposed_entry_ids` 在检索（含 `kb_search`）中被剔除，不计入 judge，并按条目入队 `kb_deprecate`（键 `kb_deprecate:expired:<entry_id>`）。tags 仍照写，供 MCP 读者与将来。steward 的 `EntryOut` 已有 `valid_to`，检索也按有效期窗口过滤（2026-11-12 核对），只缺 `EntryCreate` 能写入它；有了以后 Banyan 的过滤可删（§13） |
 | 支线对话 | episode（`POST /v1/episodes`，`user_id=BANYAN_USER_ID`、`agent_id="banyan"`、`session_id=<branch_id>`）；学习状态信号（§5.5）作为最后一条 `role=system` 消息附在 `messages` 里，因为 `EpisodeCreate` 没有 context 字段 |
 | 学习者记忆 | memory（steward 的记忆引擎抽取，**默认直接生效**，见 §8.5） |
 | 反馈 | `POST /v1/retrieve/{retrieval_id}/feedback {item_id, helpful, note}`；条目失效用 `POST /v1/kb/entries/{id}/deprecate` |
@@ -593,7 +596,7 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 
 ```
 path      {step: scope|freshness|retrieve|judge|answer|writeback, status, detail}
-tool      {name: kb_search|web_search|web_fetch, query|url}
+tool      {name: kb_search|web_search|web_fetch, query|url}   -- 之前的 token 是模型调工具前的话，客户端丢掉；答案是最后一个 tool 之后的 token
 token     {text}
 citation  {kind: kb|web, entry_id? , url?, title?}
 outline   {nodes: [...]}                       -- 仅生成大纲
@@ -774,13 +777,32 @@ error     {code, message}
 
 ### B4 — 联网
 
-- [ ] SearchProvider Protocol + 默认 adapter + FakeSearch；Fetcher（正文抽取、截断、URL 白名单、出站防护 §7.3）
-- [ ] role 层按 role 预建 Agent（带工具后构造变重；B1 每次调用新建，开销可忽略）
-- [ ] `answer.compose` / `node.explain` 变为 agent loop（kb_search / web_search / web_fetch，预算；`allow_web=false` 不挂 web 工具）
-- [ ] `judge.freshness`；web 来源条目的 `url:` / `fetched_at:` / `valid_to:` tags；检索时过滤过期条目并入队 `kb_deprecate`
-- [ ] 生成大纲时联网一次，写入 `topics.research_sources`；节点讲解把这份资料放进初始上下文，`web_fetch` 白名单包含这些 URL
-- [ ] 路径表第 3、4、4b 行测试；SSE `tool` 事件、`warnings` 与前端显示
+- [x] SearchProvider Protocol + 默认 adapter（Tavily）+ FakeSearch；Fetcher（trafilatura 正文抽取、截断、URL 白名单、出站防护 §7.3）
+- [x] role 层按 role 预建 Agent（带工具后构造变重；B1 每次调用新建，开销可忽略）
+- [x] `answer.compose` / `node.explain` 变为 agent loop（kb_search / web_search / web_fetch，步数与总 token 预算；`allow_web=false` 不挂 web 工具）
+- [x] `judge.freshness`；web 来源条目的 `url:` / `fetched_at:` / `valid_to:` tags；检索时过滤过期条目并入队 `kb_deprecate`（按 `messages.valid_to`，§8.2）
+- [x] 生成大纲时联网一次，写入 `topics.research_sources`；节点讲解把这份资料放进初始上下文，`web_fetch` 白名单包含这些 URL
+- [x] 路径表第 3、4、4b 行测试；SSE `tool` 事件、`warnings`（后端；前端显示——另一个会话）
 - 验收：时效类问题跳过 KB 并联网；引用可点击；所有模型（至少 Claude、GPT、DeepSeek）行为一致
+- **收尾记录（2026-11-12，后端）**：
+  - owner 决定：默认搜索 provider 为 Tavily（§13 第 1 项）。
+  - 验收：时效类问题跳过 judge 并联网——路径表第 3、4、4b 行（`tests/pipeline/test_web_paths.py`）与 API 层的 `tool` / `citation`
+    事件（`tests/integration/test_web_api.py`），FakeLLM + FakeSearch + FakeFetcher 跑真实的作答循环；引用存 `{kind: web, url, title,
+    fetched_at}`（可点击是前端的事）。"所有模型行为一致"写成 `-m llm`（`tests/live/test_web_live.py`：roles 文件里每个支持工具的模型
+    都要搜索并引用 `[W#]`），`-m search` 做一次真实 Tavily 搜索与抓取——两者都要 owner 的 key，**尚未运行**。后端 321 个测试 +
+    `-m steward` 全绿。
+  - 与原设计的差异（已写回设计）：`source` 由代码按 `[W#]` / `[S#]` 引用决定，不再自报；SSE `tool` 之前的 token 是模型调工具前的话，
+    客户端丢弃（§9）；过期过滤靠 `messages.valid_to` 而不是检索结果的 tags（检索不返回 tags；steward 只差 `EntryCreate.valid_to`，§8.2、§13）；
+    大纲 research 失败是降级不是失败（§5.1）；新增 `BANYAN_ANSWER_TIMEOUT_S`（180 s）与 `BANYAN_ANSWER_LOOP_TOKENS`（100k）。
+  - /simplify（四个代理）：`AnswerConfig` 收拢 Runtime / Deps 里重复的阈值与预算（顺带补上 `BANYAN_RETRIEVE_TOP_K` / `BANYAN_CONTEXT_BUDGET`
+    配置）；条目映射、过期过滤（`drop_expired`，过期 id 收集在 `Deps.expired_seen`）、搜索结果映射各只留一份；大纲 research 用同一个
+    `SourceBook` 编号；Tavily 复用缓存的 TLS context；测试 helper 合一（`tests/pipeline/helpers.py`、`tests/unit/fake_net.py`、
+    `create_branch`）。没做：预算移进 roles 文件（会改 §6.5 的配置方式）；工具自己发 `tool` 事件（工具跑在 Pydantic AI 的后台任务里，
+    可能越过尚未送出的 token；由消费循环发才保序）；trafilatura 一次解析（已在线程里，且单次 API 把 front matter 混进正文）；删旧
+    `wrap()`（要改已有测试，适配层只有几行）；删 `recency_days` / `UrlNotAllowed.reason`（§7.3 接口 / 与 steward 版本一致）。
+  - Codex：三条成立并修复（先写失败的测试）——作答循环只有单次请求的输出上限、没有整轮 token 预算（新增 `BANYAN_ANSWER_LOOP_TOKENS`；
+    没照 Codex 建议把 2,000 当整轮输出上限，那样工具调用前的几步会让完整答案在最后被判超预算）；工具失败原因没进 `path`；格式错误的
+    URL（坏端口、坏 IPv6）抛出 `ValueError` 让整个回答失败（改为被拒）。修复涉及 §6，对修复再跑了一次 Codex：没有发现问题。
 
 ### B5 — 记忆与主题指令
 
@@ -810,7 +832,7 @@ error     {code, message}
 
 不要静默决定；询问，或在配置后面实现保守选项。
 
-1. **默认搜索 provider**：Tavily / Exa / Brave。保守选项：Protocol + 一个 adapter，由配置选择。
+1. ~~默认搜索 provider~~ **已解决（2026-11-12）**：Tavily（owner 决定）；Protocol + 一个 adapter，由配置选择（§7.3）。
 2. ~~steward 审核策略~~ **已解决（2026-11-11）**：`CollectionCreate.review_policy` 支持 `low/medium → auto`，见 §8.1。遗留：steward 自己定级为 high 的内容进审核队列，Banyan 不绕过。
 3. ~~embedding 一致性~~ **已解决（2026-11-12）**：steward 默认记忆引擎改为 lite-mem，向量用 bge-m3，与 lite-rag 一致（mem0 的 MiniLM 只在切回 mem0 时出现）。
 4. **删除节点**时的 KB 条目：**v1 采用保守选项**（不自动失效，UI 提示用户选择，§4），用户可改。
@@ -825,7 +847,7 @@ error     {code, message}
 
 | 需求 | 用途 | 临时方案 |
 |---|---|---|
-| `EntryCreate.valid_to` 与 `source_refs` / `metadata` | web 来源条目的有效期与结构化来源 | tags 编码 + Banyan 检索时过滤过期条目（§8.2） |
+| `EntryCreate` 接受 `valid_to`（`EntryOut` 与检索的有效期窗口已有，2026-11-12 核对）与 `source_refs` | web 来源条目的有效期与结构化来源 | tags 编码 + Banyan 按 `messages.valid_to` 过滤过期条目（§8.2） |
 | `EpisodeCreate.context` 或 metadata | 学习状态信号 | 附加 system 消息 |
 | namespace 级 `memory_policy: confirm` | 记忆先确认再生效 | 自动生效 + 可删除（§8.5） |
 | 按 entry 的反馈端点 | 不经 retrieval 的条目评价 | 只对本次检索的 item 反馈（§6.3） |

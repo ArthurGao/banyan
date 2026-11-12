@@ -36,6 +36,7 @@ async def check_health(
     steward: StewardReader | None,
     *,
     roles: dict[str, CheckStatus] | None = None,
+    search: CheckStatus = "not_configured",
     timeout_s: float = CHECK_TIMEOUT_SECONDS,
 ) -> HealthOut:
     if steward is None:
@@ -47,7 +48,8 @@ async def check_health(
     checks = HealthChecks(
         db=db,
         steward=steward_status,
-        search="not_configured",  # B4
+        # Configured or not: probing the search API would spend a credit (design §9).
+        search=search,
         # Configured roles; whether a model answers is not probed yet (design §7.2).
         roles=roles or {},
     )

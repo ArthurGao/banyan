@@ -45,7 +45,9 @@ Session = Annotated[AsyncSession, Depends(session)]
 def runtime(request: Request) -> Runtime:
     """What an answer needs once the request's session is gone (the stream outlives it)."""
     state = request.app.state
-    return Runtime.from_settings(state.llm, state.steward, state.sessions, state.settings)
+    return Runtime.from_settings(
+        state.llm, state.steward, state.sessions, state.settings, state.web
+    )
 
 
 AnswerRuntime = Annotated[Runtime, Depends(runtime)]

@@ -84,7 +84,7 @@ async def node_explain(ctx: WorkerContext, job: Claimed) -> None:
             raise RetryLater("the node is being explained", after_s=BUSY_RETRY_S) from exc
     inp = inp.model_copy(update={"generation_run_id": run_id})
     last: Event | None = None
-    rt = answers.Runtime.from_settings(ctx.llm, ctx.steward, ctx.sessions, ctx.settings)
+    rt = answers.Runtime.from_settings(ctx.llm, ctx.steward, ctx.sessions, ctx.settings, ctx.web)
     async for event in answers.stream_answer(inp, rt):
         last = event
     if isinstance(last, ErrorEvent):

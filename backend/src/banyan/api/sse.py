@@ -2,6 +2,7 @@
 
     path      {step, status, detail}
     token     {text}
+    tool      {name, query?, url?}                the tokens before it were not the answer
     citation  {kind, entry_id?, url?, title?}     after the answer, before done
     outline   {nodes: [...]}
     done      {message_id, source, usage: {input, output}, path, warnings}
@@ -14,6 +15,7 @@ no `Last-Event-ID` resume (design §9). A client that loses a stream fetches
 
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import asdict
 from typing import Literal
 
 from pydantic import BaseModel
@@ -30,11 +32,18 @@ from banyan.pipeline.events import (
     PathEntry,
     PathEvent,
     TokenEvent,
+    ToolEvent,
 )
 
 
 class TokenData(BaseModel):
     text: str
+
+
+class ToolData(BaseModel):
+    name: str
+    query: str | None = None
+    url: str | None = None
 
 
 class CitationData(BaseModel):
@@ -66,7 +75,7 @@ class ErrorData(BaseModel):
     message: str
 
 
-EventName = Literal["path", "token", "citation", "outline", "done", "error"]
+EventName = Literal["path", "token", "tool", "citation", "outline", "done", "error"]
 
 
 def _wire(event: Event) -> tuple[EventName, BaseModel]:
@@ -75,6 +84,8 @@ def _wire(event: Event) -> tuple[EventName, BaseModel]:
             return "path", event.entry
         case TokenEvent():
             return "token", TokenData(text=event.text)
+        case ToolEvent():
+            return "tool", ToolData(**asdict(event))
         case CitationEvent():
             c = event.citation
             return "citation", CitationData(

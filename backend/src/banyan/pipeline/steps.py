@@ -1,21 +1,21 @@
 """The steps of the ask pipeline (design §6.2). Each is `async def step(inp, deps) -> out`; the
 routing decisions are code, not a model (AGENTS.md rule 3). Each step records why it did or did
-not run. Web tools arrive in B4.
+not run.
 """
 
 import asyncio
-import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from datetime import timedelta
 
-from banyan.llm import CallContext, Role
+from banyan.llm import CallContext, Role, Tool, ToolCalled
 from banyan.models import Source
-from banyan.pipeline.events import TokenEvent
-from banyan.pipeline.sources import SourceText, Wrapped, wrap
+from banyan.pipeline.events import TokenEvent, ToolEvent
+from banyan.pipeline.sources import Wrapper
+from banyan.pipeline.tools import SourceBook, ToolLog, build_tools, drop_expired
 from banyan.pipeline.types import (
     CHARS_PER_TOKEN,
     AnswerOut,
     AskInput,
-    Citation,
     Deps,
     FreshnessOut,
     FreshnessVerdict,
@@ -30,8 +30,6 @@ from banyan.pipeline.types import (
 )
 from banyan.prompts import render
 from banyan.steward import StewardUnavailable
-
-CITATION = re.compile(r"\[(S\d+)\]")
 
 
 def _context(inp: AskInput) -> CallContext:
@@ -85,8 +83,8 @@ async def retrieve(inp: AskInput, scopes: ScopeOut, deps: Deps) -> RetrieveOut:
                 user_id=deps.user_id,
                 collections=sc.collections,
                 tags=sc.tags or None,
-                top_k=deps.top_k,
-                token_budget=deps.context_budget,
+                top_k=deps.config.top_k,
+                token_budget=deps.config.context_budget,
             )
             for sc in scopes.scopes
         ),
@@ -110,21 +108,20 @@ async def retrieve(inp: AskInput, scopes: ScopeOut, deps: Deps) -> RetrieveOut:
                 continue
             seen.add(item.id)
             cost = len(item.content) // CHARS_PER_TOKEN + 1
-            if used + cost > deps.context_budget:
+            if used + cost > deps.config.context_budget:
                 continue
-            source = RetrievedSource(
-                kind=item.kind, id=item.id, retrieval_id=result.retrieval_id, title=item.title,
-                content=item.content,
-            )  # fmt: skip
+            source = RetrievedSource.from_item(item, result.retrieval_id)
             if item.kind == "memory":
                 out.memories.append(source)
-            elif len(out.entries) < deps.top_k:
+            elif len(out.entries) < deps.config.top_k:
                 out.entries.append(source)
             else:
                 continue
             used += cost
     if out.status == "unavailable":
         out.entries = []  # knowledge from a degraded KB is not used (design §6.2 step 3)
+    else:
+        out.entries = await drop_expired(deps, out.entries)
     return out
 
 
@@ -138,75 +135,86 @@ async def judge(inp: AskInput, fresh: FreshnessOut, found: RetrieveOut, deps: De
         return JudgeOut(hit=False, skipped_because=f"retrieve_{found.status}")
     if not found.entries:
         return JudgeOut(hit=False, skipped_because="no_entries")
-    wrapped, _ = _labelled(found)
+    wrapper = Wrapper()
     prompt = render(
         "judge_sufficiency", question=inp.question, mode=inp.mode,
-        node_summary=inp.node_summary, sources=wrapped.text, sources_rule=wrapped.rule,
+        node_summary=inp.node_summary, sources=SourceBook(found).initial(wrapper),
+        sources_rule=wrapper.rule,
     )  # fmt: skip
     verdict = await deps.llm.structured(
         Role.JUDGE_SUFFICIENCY, SufficiencyVerdict, instructions=prompt.instructions,
         prompt=prompt.prompt, context=_context(inp), usage=deps.usage,
     )  # fmt: skip
-    threshold = deps.judge_threshold_explain if inp.mode == "explain" else deps.judge_threshold
+    threshold = (
+        deps.config.judge_threshold_explain
+        if inp.mode == "explain"
+        else deps.config.judge_threshold
+    )
     hit = verdict.sufficient and verdict.coverage >= threshold
     return JudgeOut(hit=hit, coverage=verdict.coverage, missing=verdict.missing)
+
+
+def web_on(inp: AskInput, deps: Deps) -> bool:
+    """Web tools are offered when a search provider is configured and the request allows it."""
+    return deps.web is not None and inp.allow_web
 
 
 async def answer(
     inp: AskInput, fresh: FreshnessOut, found: RetrieveOut, verdict: JudgeOut, deps: Deps
 ) -> AnswerOut:
-    """A hit: `answer.from_kb`, only from the knowledge, citing it. Otherwise `answer.compose`, or
-    `node.explain` for an explanation, with the retrieval and what the judge found missing as
-    context (design §5.2, §6.2 step 5)."""
+    """A hit: `answer.from_kb`, only from the knowledge, citing it. Otherwise the answer loop:
+    `answer.compose`, or `node.explain` for an explanation, starting from the retrieval, the
+    topic's research and what the judge found missing, with kb_search and (web on) web_search /
+    web_fetch (design §5.2, §6.2 step 5)."""
     if verdict.hit:
         return await _from_kb(inp, fresh, found, deps)
     role = Role.NODE_EXPLAIN if inp.mode == "explain" else Role.ANSWER_COMPOSE
-    wrapped, _ = _labelled(found)
+    web = web_on(inp, deps)
+    book, wrapper = SourceBook(found, inp.research), Wrapper()
+    log: ToolLog = []
+    tools = build_tools(inp, deps, book, wrapper, log, web=web)
+    material = book.initial(wrapper)
     template = "node_explain" if inp.mode == "explain" else "answer_compose"
     prompt = render(
-        template, **_context_vars(inp), sources=wrapped.text, missing=verdict.missing,
-        sources_rule=wrapped.rule if found.entries or found.memories else "",
+        template, **_context_vars(inp), sources=material, missing=verdict.missing,
+        sources_rule=wrapper.rule if material or tools else "",
+        kb_tool=deps.steward is not None, web=web,
     )  # fmt: skip
-    content = await _stream(role, prompt.instructions, prompt.prompt, inp, deps)
-    # No web tools before B4, so a time-sensitive question is answered from what the model knows.
-    warnings = ["stale_risk"] if fresh.needs_web else []
-    judged = verdict.skipped_because is None
+    content = await _stream(
+        role, prompt.instructions, prompt.prompt, inp, deps, tools=tools,
+        max_output_tokens=deps.config.answer_max_tokens if role == Role.ANSWER_COMPOSE else None,
+    )  # fmt: skip
+    # Without the web, a time-sensitive answer comes from what the model knows (row 4b).
+    warnings = ["stale_risk"] if fresh.needs_web and not web else []
+    citations = book.citations(content)
+    read = [c.fetched_at for c in citations if c.fetched_at is not None]
     return AnswerOut(
-        content=content, source=Source.LLM, warnings=warnings,
-        roles=_roles(fresh, role, deps, judged=judged),
+        content=content, source=book.source(content), warnings=warnings, citations=citations,
+        retrieval_ids=book.retrieval_ids, tools=log,
+        roles=_roles(fresh, role, deps, judged=verdict.skipped_because is None),
+        # What the web said holds until the earliest page it cites gets old (design §8.2).
+        valid_to=min(read) + timedelta(days=deps.config.web_valid_days) if read else None,
     )  # fmt: skip
 
 
 async def _from_kb(inp: AskInput, fresh: FreshnessOut, found: RetrieveOut, deps: Deps) -> AnswerOut:
-    wrapped, labels = _labelled(found)
+    book, wrapper = SourceBook(found), Wrapper()
     prompt = render(
-        "answer_from_kb", **_context_vars(inp), sources=wrapped.text, sources_rule=wrapped.rule
-    )
-
-    def cited(text: str) -> list[RetrievedSource]:
-        return [labels[m] for m in dict.fromkeys(CITATION.findall(text)) if m in labels]
+        "answer_from_kb", **_context_vars(inp), sources=book.initial(wrapper),
+        sources_rule=wrapper.rule,
+    )  # fmt: skip
 
     def must_cite(text: str) -> None:
         # An answer from the knowledge base must say which knowledge (owner decision, design §6.2);
         # the role layer records this as a failed (validation) attempt.
-        if not cited(text):
+        if not book.cited(text):
             raise ValueError("the answer cites none of the sources")
 
     content = await _stream(
         Role.ANSWER_FROM_KB, prompt.instructions, prompt.prompt, inp, deps, validate=must_cite
     )
-    citations = [
-        Citation(
-            kind="kb",
-            entry_id=s.id if s.kind == "entry" else None,
-            item_id=s.id,
-            retrieval_id=s.retrieval_id,
-            title=s.title,
-        )
-        for s in cited(content)
-    ]
     return AnswerOut(
-        content=content, source=Source.KB, citations=citations,
+        content=content, source=Source.KB, citations=book.citations(content),
         roles=_roles(fresh, Role.ANSWER_FROM_KB, deps, judged=True),
     )  # fmt: skip
 
@@ -222,6 +230,14 @@ async def writeback(inp: AskInput, answered: AnswerOut, deps: Deps) -> Writeback
                 payload={"message_id": str(inp.message_id)},
             )
         )
+    for entry_id in sorted(deps.expired_seen):  # expired web knowledge leaves the KB (§8.2)
+        jobs.append(
+            JobSpec(
+                kind="kb_deprecate",
+                idempotency_key=f"kb_deprecate:expired:{entry_id}",
+                payload={"entry_ids": [entry_id]},
+            )
+        )
     if inp.mode == "explain":
         jobs.append(
             JobSpec(
@@ -232,18 +248,6 @@ async def writeback(inp: AskInput, answered: AnswerOut, deps: Deps) -> Writeback
             )
         )
     return WritebackOut(jobs=jobs)
-
-
-def _source_text(s: RetrievedSource) -> str:
-    return f"{s.title}\n{s.content}" if s.title else s.content
-
-
-def _labelled(found: RetrieveOut) -> tuple[Wrapped, dict[str, RetrievedSource]]:
-    """Entries as S1…Sn (what an answer cites as [S1]), memories as M1…Mn (context only)."""
-    labels = {f"S{i}": s for i, s in enumerate(found.entries, 1)}
-    material = [SourceText(label, "kb", _source_text(s)) for label, s in labels.items()]
-    material += [SourceText(f"M{i}", "memory", s.content) for i, s in enumerate(found.memories, 1)]
-    return wrap(material), labels
 
 
 def _context_vars(inp: AskInput) -> dict[str, object]:
@@ -258,16 +262,31 @@ def _context_vars(inp: AskInput) -> dict[str, object]:
 
 async def _stream(
     role: Role, instructions: str, prompt: str, inp: AskInput, deps: Deps,
-    validate: Callable[[str], None] | None = None,
+    validate: Callable[[str], None] | None = None, tools: Sequence[Tool] = (),
+    max_output_tokens: int | None = None,
 ) -> str:  # fmt: skip
+    """Streams the answer as tokens and each tool call as a `tool` event. The answer is the text
+    after the last tool call; what came before was the model thinking aloud (design §9)."""
     parts: list[str] = []
-    async for delta in deps.llm.stream(
+    async for item in deps.llm.stream(
         role, instructions=instructions, prompt=prompt, context=_context(inp), usage=deps.usage,
-        validate=validate,
+        validate=validate, tools=tools, max_output_tokens=max_output_tokens,
+        max_steps=deps.config.answer_max_steps if tools else None,
+        max_total_tokens=deps.config.answer_loop_tokens if tools else None,
+        timeout_s=deps.config.answer_timeout_s if tools else None,
     ):  # fmt: skip
-        parts.append(delta)
-        await deps.emit(TokenEvent(delta))
+        if isinstance(item, ToolCalled):
+            parts = []
+            await deps.emit(ToolEvent(item.name, _arg(item, "query"), _arg(item, "url")))
+        else:
+            parts.append(item)
+            await deps.emit(TokenEvent(item))
     return "".join(parts)
+
+
+def _arg(call: ToolCalled, name: str) -> str | None:
+    value = call.args.get(name)
+    return value if isinstance(value, str) else None
 
 
 def _roles(fresh: FreshnessOut, answered_by: Role, deps: Deps, *, judged: bool) -> list[str]:
