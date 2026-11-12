@@ -13,6 +13,7 @@ from banyan.api.schemas import (
     NodeOut,
     QuickAskIn,
     TopicCreate,
+    TopicDeleted,
     TopicDetail,
     TopicOut,
     TopicPatch,
@@ -53,6 +54,17 @@ async def get_topic(topic_id: uuid.UUID, s: Session) -> TopicDetail:
 async def update_topic(topic_id: uuid.UUID, body: TopicPatch, s: Session) -> TopicOut:
     changes = body.model_dump(exclude_unset=True)
     return TopicOut.model_validate(await topics.update_topic(s, topic_id, changes))
+
+
+@router.delete("/topics/{topic_id}")
+async def delete_topic(
+    topic_id: uuid.UUID, s: Session, deprecate_entries: bool = False
+) -> TopicDeleted:
+    """Deletes the topic with its outline, branches, notes, runs and exports.
+    `deprecate_entries=true` also retires the KB entries its answers proposed (§4); otherwise they
+    stay in steward."""
+    entries = await topics.delete_topic(s, topic_id, deprecate_entries=deprecate_entries)
+    return TopicDeleted(proposed_entry_ids=entries)
 
 
 @router.post(

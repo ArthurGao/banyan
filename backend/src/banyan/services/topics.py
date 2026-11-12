@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from banyan.errors import Conflict, NotFound, Unprocessable
 from banyan.models import (
+    Branch,
     ExplainMode,
     Job,
     JobKind,
@@ -19,6 +20,7 @@ from banyan.models import (
     Topic,
 )
 from banyan.services.lookup import get_or_404
+from banyan.services.outline import proposed_entries
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,25 @@ async def update_topic(s: AsyncSession, topic_id: uuid.UUID, changes: dict[str, 
         setattr(topic, field, value)
     await s.commit()
     return topic
+
+
+async def delete_topic(
+    s: AsyncSession, topic_id: uuid.UUID, *, deprecate_entries: bool = False
+) -> list[str]:
+    """Deletes the topic and everything under it (the database cascades to nodes, branches,
+    messages, notes, runs and exports; usage rows keep their tokens with the topic cleared). Returns
+    the KB entries its answers proposed: like a deleted node's, they stay in steward unless the user
+    asks to deprecate them too (design §4), which is queued in the same transaction."""
+    topic = await get_topic(s, topic_id)
+    entry_ids = await proposed_entries(
+        s,
+        Branch.node_id.in_(select(Node.id).where(Node.topic_id == topic_id)),
+        deprecate=deprecate_entries,
+        key=f"topic:{topic_id}",
+    )
+    await s.delete(topic)
+    await s.commit()
+    return entry_ids
 
 
 async def confirm_outline(s: AsyncSession, topic_id: uuid.UUID, mode: ExplainMode) -> Topic:

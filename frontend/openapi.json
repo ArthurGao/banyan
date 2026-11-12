@@ -1538,6 +1538,23 @@
         "title": "TopicCreate",
         "type": "object"
       },
+      "TopicDeleted": {
+        "properties": {
+          "proposed_entry_ids": {
+            "description": "KB entries proposed by the topic's answers; kept in steward unless deprecated",
+            "items": {
+              "type": "string"
+            },
+            "title": "Proposed Entry Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "proposed_entry_ids"
+        ],
+        "title": "TopicDeleted",
+        "type": "object"
+      },
       "TopicDetail": {
         "properties": {
           "latest_run_id": {
@@ -3198,6 +3215,63 @@
       }
     },
     "/v1/topics/{topic_id}": {
+      "delete": {
+        "description": "Deletes the topic with its outline, branches, notes, runs and exports.\n`deprecate_entries=true` also retires the KB entries its answers proposed (§4); otherwise they\nstay in steward.",
+        "operationId": "delete_topic",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deprecate_entries",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Deprecate Entries",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Topic",
+        "tags": [
+          "topics"
+        ]
+      },
       "get": {
         "operationId": "get_topic",
         "parameters": [

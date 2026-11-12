@@ -17,6 +17,7 @@ import type {
   MessageOut,
   NodeCreate,
   NodeDeleted,
+  TopicDeleted,
   NodeDetail,
   NodeMove,
   NodeOut,
@@ -50,6 +51,8 @@ export const api = {
   topic: (id: string) => request<TopicDetail>('GET', `/v1/topics/${id}`),
   createTopic: (body: TopicCreate) => request<TopicOut>('POST', '/v1/topics', body),
   updateTopic: (id: string, body: TopicPatch) => request<TopicOut>('PATCH', `/v1/topics/${id}`, body),
+  deleteTopic: (id: string, deprecateEntries: boolean) =>
+    request<TopicDeleted>('DELETE', `/v1/topics/${id}${q({ deprecate_entries: deprecateEntries || null })}`),
   generateOutline: (id: string, replace: boolean, onEvent: OnEvent, signal: AbortSignal) =>
     postStream(`/v1/topics/${id}/outline${q({ replace: replace || null })}`, undefined, onEvent, signal),
   confirmOutline: (id: string, explain_mode: ExplainMode) =>

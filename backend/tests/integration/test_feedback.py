@@ -8,7 +8,17 @@ import httpx
 
 from banyan.llm import Role
 from banyan.llm.fakes import FakeLLM
-from banyan.models import Job, JobKind, Message, MessageRole, MessageStatus, Source, UsageLog
+from banyan.models import (
+    Branch,
+    Job,
+    JobKind,
+    Message,
+    MessageRole,
+    MessageStatus,
+    Node,
+    Source,
+    UsageLog,
+)
 from tests.conftest import (
     NOT_FRESH,
     Sessions,
@@ -295,3 +305,42 @@ async def test_a_wrong_explanation_reanswer_is_told_the_note(
     )
     rerun = fake_llm.calls_of(Role.NODE_EXPLAIN)[-1].prompt
     assert "marked an earlier answer to this as wrong, with this note: Ports are mixed up." in rerun
+
+
+async def _topic_with_proposals(api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions) -> str:
+    node_id, _, answer = await asked(api, fake_llm)
+    async with db() as s:
+        m = await s.get(Message, uuid.UUID(answer))
+        node = await s.get(Node, uuid.UUID(node_id))
+        assert m is not None and node is not None
+        m.proposed_entry_ids = ["e2", "e1"]
+        await s.commit()
+        return str(node.topic_id)
+
+
+async def test_deleting_a_topic_removes_its_tree_and_keeps_entries_and_usage_by_default(
+    api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions
+) -> None:
+    topic_id = await _topic_with_proposals(api, fake_llm, db)
+    usage_before = len(await rows(db, UsageLog))
+    deleted = await api.delete(f"/v1/topics/{topic_id}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"proposed_entry_ids": ["e1", "e2"]}
+    assert kinds(await rows(db, Job)) == []  # kept in steward unless the learner opts in
+    assert (await rows(db, Node), await rows(db, Branch), await rows(db, Message)) == ([], [], [])
+    usage = await rows(db, UsageLog)
+    assert len(usage) == usage_before > 0 and all(u.topic_id is None for u in usage)
+    assert (await api.get(f"/v1/topics/{topic_id}")).status_code == 404
+    assert [t["id"] for t in (await api.get("/v1/topics")).json()] == []
+
+
+async def test_deleting_a_topic_can_deprecate_its_entries_too(
+    api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions
+) -> None:
+    topic_id = await _topic_with_proposals(api, fake_llm, db)
+    await api.delete(f"/v1/topics/{topic_id}?deprecate_entries=true")
+    assert kinds(await rows(db, Job)) == [("kb_deprecate", {"entry_ids": ["e1", "e2"]})]
+
+
+async def test_deleting_an_unknown_topic_is_404(api: httpx.AsyncClient) -> None:
+    assert (await api.delete(f"/v1/topics/{uuid.uuid4()}")).status_code == 404

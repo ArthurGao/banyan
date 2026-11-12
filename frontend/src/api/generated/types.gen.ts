@@ -848,6 +848,18 @@ export type TopicCreate = {
 };
 
 /**
+ * TopicDeleted
+ */
+export type TopicDeleted = {
+    /**
+     * Proposed Entry Ids
+     *
+     * KB entries proposed by the topic's answers; kept in steward unless deprecated
+     */
+    proposed_entry_ids: Array<string>;
+};
+
+/**
  * TopicDetail
  */
 export type TopicDetail = {
@@ -1789,6 +1801,41 @@ export type CreateTopicResponses = {
 };
 
 export type CreateTopicResponse = CreateTopicResponses[keyof CreateTopicResponses];
+
+export type DeleteTopicData = {
+    body?: never;
+    path: {
+        /**
+         * Topic Id
+         */
+        topic_id: string;
+    };
+    query?: {
+        /**
+         * Deprecate Entries
+         */
+        deprecate_entries?: boolean;
+    };
+    url: '/v1/topics/{topic_id}';
+};
+
+export type DeleteTopicErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteTopicError = DeleteTopicErrors[keyof DeleteTopicErrors];
+
+export type DeleteTopicResponses = {
+    /**
+     * Successful Response
+     */
+    200: TopicDeleted;
+};
+
+export type DeleteTopicResponse = DeleteTopicResponses[keyof DeleteTopicResponses];
 
 export type GetTopicData = {
     body?: never;

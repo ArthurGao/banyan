@@ -204,6 +204,9 @@ exports
 - 每次 LLM provider 尝试一行 `usage_log`，包括失败和校验重试；`ok=false` 时 token 可为 null。
 - 删除节点时级联删除其支线与消息。已提议到 steward 的条目**不自动失效**（§13 第 4 条，保守选项）：删除响应返回受影响的
   `proposed_entry_ids`，UI 提示用户可选择"同时失效这些知识"，用户确认后入队 `kb_deprecate`。
+- 删除主题（owner 2026-11-13）同理：级联删除节点、支线、消息、笔记、全部生成的 run 与导出；`usage_log` 保留（`topic_id`
+  置空，用量总数不变）；条目默认保留，勾选后在同一事务入队一个 `kb_deprecate`。steward 里的集合、记忆与 episode 不动。
+  指向已删除行的待办任务由 worker 静默结束。
 - `node_notes.version` 每次更新 +1，更新用乐观锁（`WHERE version = :expected`）；同一节点的 `notes_update` 任务按
   `dedupe_key` 合并，worker 一次只处理一个节点的笔记。导出记录所用版本，便于判断是否需要重新导出。
 - worker 领取任务用 `SELECT … FOR UPDATE SKIP LOCKED`，并写 `locked_at/locked_by`；进程崩溃后租约过期的 `running`
@@ -572,6 +575,7 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 | GET | `/topics` | 主题列表（含进度） |
 | GET | `/topics/{id}` | 主题详情 + 大纲树 + 节点状态 + `latest_run_id`（最近一次全部生成的 run，结束与否；刷新页面后前端据此取进度） |
 | PATCH | `/topics/{id}` | 修改标题、目标、水平、指令、状态、讲解生成方式（`explain_mode`，§5.1 第 5 步“之后可随时修改”） |
+| DELETE | `/topics/{id}` | 删除主题（§4 一致性规则）；`?deprecate_entries=true` 时在同一事务里入队 `kb_deprecate`；返回 `proposed_entry_ids` |
 | POST | `/topics/{id}/nodes` | 新增节点（可指定 parent、position、origin） |
 | PATCH | `/nodes/{id}` | 重命名、改 summary、改状态 |
 | POST | `/nodes/{id}/move` | 移动到 `parent_id` 下的 `position`（带子树；不能移到自己下面；超过 3 层 422） |

@@ -8,7 +8,7 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from banyan.errors import Unprocessable
@@ -100,6 +100,25 @@ async def move_node(
     return node
 
 
+async def proposed_entries(
+    s: AsyncSession, branches: ColumnElement[bool], *, deprecate: bool, key: str
+) -> list[str]:
+    """The KB entries proposed by answers in the matching branches, before they are deleted
+    (design §4). With `deprecate`, one `kb_deprecate` job retires them in the caller's
+    transaction."""
+    rows = await s.scalars(
+        select(Message.proposed_entry_ids)
+        .join(Branch, Branch.id == Message.branch_id)
+        .where(branches)
+    )
+    entry_ids = sorted({e for ids in rows for e in ids})
+    if deprecate and entry_ids:
+        await enqueue(
+            s, JobKind.KB_DEPRECATE, key=f"kb_deprecate:{key}", payload={"entry_ids": entry_ids}
+        )
+    return entry_ids
+
+
 async def delete_node(
     s: AsyncSession, node_id: uuid.UUID, *, deprecate_entries: bool = False
 ) -> list[str]:
@@ -110,18 +129,10 @@ async def delete_node(
     nodes = await topic_nodes(s, node.topic_id)
     siblings = _siblings(nodes)
     doomed = [node.id, *_descendants(siblings, node)]
-    proposed = await s.scalars(
-        select(Message.proposed_entry_ids)
-        .join(Branch, Branch.id == Message.branch_id)
-        .where(Branch.node_id.in_(doomed))
+    entry_ids = await proposed_entries(
+        s, Branch.node_id.in_(doomed), deprecate=deprecate_entries, key=f"node:{node_id}"
     )
-    entry_ids = sorted({e for ids in proposed for e in ids})
     remaining = [n for n in siblings[node.parent_id] if n is not node]
-    if deprecate_entries and entry_ids:
-        await enqueue(
-            s, JobKind.KB_DEPRECATE, key=f"kb_deprecate:node:{node_id}",
-            payload={"entry_ids": entry_ids},
-        )  # fmt: skip
     await s.delete(node)  # the database cascades to children, branches and messages
     _renumber(remaining)
     await s.commit()

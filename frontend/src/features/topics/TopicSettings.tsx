@@ -1,12 +1,16 @@
 // Topic settings (design §9 PATCH /topics/{id}): title, goal, level, explanation language, the
-// topic instructions sent with every explanation and answer, archive.
+// topic instructions sent with every explanation and answer, archive, delete (KB entries kept unless
+// the learner also retires them, design §4).
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState, type SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useNavigate } from 'react-router'
 import { toast } from 'sonner'
 import type { Language, Level, TopicPatch } from '@/api/generated'
 import { api } from '@/api/endpoints'
+import { ConfirmDialog } from '@/components/ConfirmDialog'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -14,7 +18,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useTopicContext } from '@/features/topic/context'
 import { LEVELS, TOPIC_LANGUAGES } from '@/lib/enums'
 import { toastError } from '@/lib/errors'
-import { refreshTopic } from '@/lib/queries'
+import { keys, refreshTopic } from '@/lib/queries'
 
 
 export function TopicSettings() {
@@ -32,6 +36,19 @@ export function TopicSettings() {
     onSuccess: async () => {
       toast.success(t('topicSettings.saved'))
       await refreshTopic(queryClient, topic.id)
+    },
+    onError: toastError,
+  })
+  const navigate = useNavigate()
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [deprecate, setDeprecate] = useState(false)
+  const remove = useMutation({
+    mutationFn: () => api.deleteTopic(topic.id, deprecate),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: keys.topic(topic.id) })
+      void queryClient.invalidateQueries({ queryKey: keys.topics })
+      toast.success(t('topicSettings.deleted'))
+      void navigate('/', { replace: true })
     },
     onError: toastError,
   })
@@ -98,11 +115,41 @@ export function TopicSettings() {
           >
             {topic.status === 'archived' ? t('topicSettings.unarchive') : t('topicSettings.archive')}
           </Button>
-          <Button type="submit" disabled={save.isPending || !title.trim()}>
-            {t('app.save')}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="text-destructive"
+              disabled={remove.isPending}
+              onClick={() => {
+                setDeprecate(false)
+                setConfirmOpen(true)
+              }}
+            >
+              {t('topicSettings.delete')}
+            </Button>
+            <Button type="submit" disabled={save.isPending || !title.trim()}>
+              {t('app.save')}
+            </Button>
+          </div>
         </div>
       </form>
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={t('topicSettings.delete')}
+        body={t('topicSettings.deleteConfirm', { title: topic.title })}
+        confirmLabel={t('app.delete')}
+        destructive
+        onConfirm={() => {
+          remove.mutate()
+        }}
+      >
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={deprecate} onCheckedChange={(v) => { setDeprecate(v === true) }} />
+          {t('outline.deprecateEntries')}
+        </label>
+      </ConfirmDialog>
     </div>
   )
 }

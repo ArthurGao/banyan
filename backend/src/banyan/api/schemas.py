@@ -112,6 +112,12 @@ class NodeMove(BaseModel):
     position: int = Field(ge=0)
 
 
+class TopicDeleted(BaseModel):
+    proposed_entry_ids: list[str] = Field(
+        description="KB entries proposed by the topic's answers; kept in steward unless deprecated"
+    )
+
+
 class NodeDeleted(BaseModel):
     proposed_entry_ids: list[str] = Field(
         description="KB entries proposed by this node's answers; kept in steward unless deprecated"

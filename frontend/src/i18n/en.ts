@@ -210,6 +210,9 @@ export const en: Messages = {
     instructionsHint: 'Sent with every explanation and answer, e.g. “show kubectl examples”.',
     archive: 'Archive topic',
     unarchive: 'Unarchive',
+    delete: 'Delete topic',
+    deleteConfirm: 'Delete “{{title}}” with its outline, branches, notes and exports? This cannot be undone.',
+    deleted: 'Topic deleted',
     saved: 'Saved',
   },
   memory: {

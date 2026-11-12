@@ -209,6 +209,9 @@ export const zh = {
     instructionsHint: '每次讲解与回答都会带上，例如“多给 kubectl 命令示例”。',
     archive: '归档主题',
     unarchive: '取消归档',
+    delete: '删除主题',
+    deleteConfirm: '删除「{{title}}」及其大纲、支线、笔记和导出？不能撤销。',
+    deleted: '主题已删除',
     saved: '已保存',
   },
   memory: {
