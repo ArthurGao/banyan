@@ -6,8 +6,10 @@ addresses are reached. The host is resolved here and every address it resolves t
 ranges, and no IPv6 form that embeds an IPv4 address). The connection then goes to the address
 that was checked, with the hostname kept for TLS (SNI) and the `Host` header, so DNS cannot answer
 differently between the check and the connection (rebinding). Every redirect is checked the same
-way; https only. `allow_private` (BANYAN_ALLOW_PRIVATE_URLS, local tests) lifts the address and
-scheme rules, never the size or redirect limits.
+way; https only. Bodies are read uncompressed and counted as they arrive: a compressed body would
+be expanded before any size check (a decompression bomb). `allow_private`
+(BANYAN_ALLOW_PRIVATE_URLS, local tests) lifts the address and scheme rules, never the size or
+redirect limits.
 """
 
 import asyncio
@@ -154,7 +156,9 @@ async def get(
     """One GET through the guard, following up to REDIRECTS checked redirects."""
     for _ in range(REDIRECTS + 1):
         target = await check(url, allow_private=allow_private, resolve=resolve)
-        sent = {**(headers or {}), "Host": target.host_header}
+        # Uncompressed only: a compressed body is expanded before any size check can run, so a
+        # small gzip or brotli response could fill memory (a decompression bomb).
+        sent = {**(headers or {}), "Host": target.host_header, "Accept-Encoding": "identity"}
         async with http.stream(
             "GET", target.url, headers=sent, extensions={"sni_hostname": target.host}
         ) as response:
@@ -162,8 +166,14 @@ async def get(
             if response.is_redirect and location:
                 url = urljoin(url, location)
                 continue
+            encoding = response.headers.get("content-encoding", "identity").strip().lower()
+            if encoding != "identity":
+                raise TooLarge(f"a compressed response ({encoding}) is not read")
+            declared = response.headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > max_bytes:
+                raise TooLarge(f"the response is over the {max_bytes} byte limit")
             body = bytearray()
-            async for chunk in response.aiter_bytes():
+            async for chunk in response.aiter_raw():
                 body += chunk
                 if len(body) > max_bytes:
                     raise TooLarge(f"the response is over the {max_bytes} byte limit")

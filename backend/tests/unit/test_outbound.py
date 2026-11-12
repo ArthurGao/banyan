@@ -1,13 +1,14 @@
 """The guard for URLs a model or a user supplied (design §7.3; ported from llm-steward's tests):
 a fake resolver and a fake network."""
 
+import gzip
 from typing import Any
 
 import httpx
 import pytest
 
 from banyan.tools.outbound import TooLarge, UrlNotAllowed, check, client, get
-from tests.unit.fake_net import PUBLIC, resolve
+from tests.unit.fake_net import PUBLIC, resolve, streamed
 
 
 async def _check(url: str, **kw: Any) -> Any:
@@ -80,7 +81,7 @@ async def _get(routes: dict[str, httpx.Response], url: str) -> Any:
 
     def handler(req: httpx.Request) -> httpx.Response:
         seen.append(req)
-        return routes[req.headers["host"] + req.url.path]
+        return streamed(routes[req.headers["host"] + req.url.path])
 
     async with client(httpx.MockTransport(handler)) as http:
         return await get(http, url, max_bytes=100, resolve=resolve), seen
@@ -130,3 +131,31 @@ async def test_a_body_over_the_limit_is_refused() -> None:
 async def test_a_malformed_url_is_refused_not_raised(url: str) -> None:
     with pytest.raises(UrlNotAllowed):
         await check(url, resolve=resolve)
+
+
+async def test_responses_are_asked_for_and_read_uncompressed() -> None:
+    """A compressed body is expanded before any size check (a decompression bomb): Banyan asks
+    for `identity` and refuses an encoded answer instead of decoding it."""
+    _, [sent] = await _get(
+        {"docs.example.com/a": httpx.Response(200, content=b"ok")}, "https://docs.example.com/a"
+    )
+    assert sent.headers["accept-encoding"] == "identity"
+    bomb = gzip.compress(b"\0" * 50)  # small either way: refused for its encoding, not its size
+    gzipped = httpx.Response(200, content=bomb, headers={"content-encoding": "gzip"})
+    with pytest.raises(TooLarge, match="compressed"):
+        await _get({"docs.example.com/z": gzipped}, "https://docs.example.com/z")
+
+
+async def test_a_declared_length_over_the_limit_is_refused_before_reading() -> None:
+    declared = httpx.Response(200, content=b"x", headers={"content-length": "1000000"})
+    with pytest.raises(TooLarge):
+        await _get({"docs.example.com/big": declared}, "https://docs.example.com/big")
+
+
+async def test_an_undeclared_body_is_cut_off_as_it_arrives() -> None:
+    def chunked(req: httpx.Request) -> httpx.Response:  # no Content-Length: counted while read
+        return httpx.Response(200, stream=httpx.ByteStream(b"x" * 101))
+
+    async with client(httpx.MockTransport(chunked)) as http:
+        with pytest.raises(TooLarge):
+            await get(http, "https://docs.example.com/big", max_bytes=100, resolve=resolve)

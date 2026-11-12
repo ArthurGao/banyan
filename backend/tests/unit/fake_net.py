@@ -2,6 +2,8 @@
 
 import ipaddress
 
+import httpx
+
 PUBLIC = "93.184.216.34"
 DNS = {
     "docs.example.com": [PUBLIC],
@@ -18,3 +20,10 @@ async def resolve(host: str, port: int) -> list[str]:
         return [str(ipaddress.ip_address(host))]
     except ValueError:
         raise OSError("no such host") from None
+
+
+def streamed(response: httpx.Response) -> httpx.Response:
+    """As a real network answers: a body not yet read, so the guard can count raw bytes."""
+    return httpx.Response(
+        response.status_code, headers=response.headers, stream=httpx.ByteStream(response.content)
+    )

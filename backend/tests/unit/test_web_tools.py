@@ -9,7 +9,7 @@ from pydantic import SecretStr
 from banyan.tools.fetch import Fetcher, FetchFailed
 from banyan.tools.search import SearchFailed, SearchResult
 from banyan.tools.search.tavily import TavilySearch
-from tests.unit.fake_net import PUBLIC, resolve
+from tests.unit.fake_net import PUBLIC, resolve, streamed
 
 ARTICLE = (
     "<html><head><title>Kubernetes 1.40 | Blog</title></head><body><nav>Home Docs Blog</nav>"
@@ -74,7 +74,7 @@ async def test_an_unreachable_search_is_a_failed_search() -> None:
 def fetcher(routes: dict[str, httpx.Response], *, max_chars: int = 10_000) -> Fetcher:
     def handler(req: httpx.Request) -> httpx.Response:
         assert req.url.host == PUBLIC  # always through the guard
-        return routes[req.headers["host"] + req.url.path]
+        return streamed(routes[req.headers["host"] + req.url.path])
 
     return Fetcher(
         max_bytes=100_000, max_chars=max_chars, transport=httpx.MockTransport(handler),

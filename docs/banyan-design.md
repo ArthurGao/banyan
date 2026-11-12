@@ -438,7 +438,7 @@ provider 由配置决定（`BANYAN_SEARCH_PROVIDER`；**默认 Tavily**，owner 
 `web_fetch` 的两层限制：
 
 1. **白名单**：只允许抓取本轮 `web_search` 返回的 URL 或用户消息中出现的 URL，防止模型构造任意请求。
-2. **出站防护**（用户消息里的 URL 不可信，可能指向 `127.0.0.1:8600` 的 steward admin、Ollama 或云元数据地址）：只允许 `https`；解析主机名后所有地址必须是公网地址（拒绝私网、回环、链路本地、CGNAT、组播、保留地址，以及写成 IPv6 的 IPv4）；连接发往校验过的 IP，主机名只用于 SNI 与 `Host`（防 DNS rebinding）；重定向最多 3 跳且每跳重新校验；响应体有大小上限。实现照搬 steward 的 `outbound.py`（steward 设计 §11 P5c），移植到 httpx：`banyan/tools/outbound.py`，连同它的测试。`BANYAN_ALLOW_PRIVATE_URLS=true` 仅供本地测试。
+2. **出站防护**（用户消息里的 URL 不可信，可能指向 `127.0.0.1:8600` 的 steward admin、Ollama 或云元数据地址）：只允许 `https`；解析主机名后所有地址必须是公网地址（拒绝私网、回环、链路本地、CGNAT、组播、保留地址，以及写成 IPv6 的 IPv4）；连接发往校验过的 IP，主机名只用于 SNI 与 `Host`（防 DNS rebinding）；重定向最多 3 跳且每跳重新校验；响应体有大小上限，且只收未压缩的内容（请求 `Accept-Encoding: identity`，带 `Content-Encoding` 的响应直接拒绝、不解压，`Content-Length` 超限提前拒绝：解压发生在大小检查之前，压缩炸弹能撑爆内存；B4 提交后的安全审查发现，steward 的原版同样有此问题）。实现照搬 steward 的 `outbound.py`（steward 设计 §11 P5c），移植到 httpx：`banyan/tools/outbound.py`，连同它的测试。`BANYAN_ALLOW_PRIVATE_URLS=true` 仅供本地测试。
 
 ## 8. llm-steward 集成
 
