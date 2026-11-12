@@ -124,6 +124,16 @@ def demo_answers(role: Role, prompt: str) -> str:
                 ]
             }
         )
+    if role == Role.NOTES_UPDATE:
+        return json.dumps(
+            {
+                "summary": "Fake notes (BANYAN_FAKES=1).",
+                "key_points": ["A fake key point"],
+                "examples": [],
+                "pitfalls": [],
+                "branch_highlights": [],
+            }
+        )
     if role == Role.JUDGE_FRESHNESS:
         return json.dumps({"needs_web": False, "reason": "fake model"})
     return (

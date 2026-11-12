@@ -2,13 +2,14 @@
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from banyan.models import (
     BranchKind,
     ExplainMode,
+    ExportStatus,
     Feedback,
     Language,
     Level,
@@ -17,10 +18,12 @@ from banyan.models import (
     NodeOrigin,
     NodeStatus,
     OutlineStatus,
+    RunStatus,
     Source,
     TopicStatus,
 )
 from banyan.pipeline.events import PathEntry
+from banyan.services.notes import NotesContent
 
 
 class _Out(BaseModel):
@@ -146,6 +149,9 @@ class MessageOut(_Out):
 class NodeDetail(BaseModel):
     node: NodeOut
     explanation: MessageOut | None
+    explanation_status: Literal["none", "generating", "done", "failed"] = Field(
+        description="generating: a background job or another stream is making it (design §5.1.1)"
+    )
     branches: list[BranchOut]
 
 
@@ -160,3 +166,55 @@ class AskBody(BaseModel):
         default=True,
         description="False: no web tools (B4); a time-sensitive answer gets warnings=[stale_risk]",
     )
+
+
+class EstimateOut(BaseModel):
+    nodes: int = Field(description="Nodes still without an explanation")
+    tokens_per_node: int
+    total: int
+    basis: Literal["history", "default"] = Field(
+        description="history: median of the last 50 explanations; default: configured guess"
+    )
+
+
+class RunCreate(BaseModel):
+    token_budget: int | None = Field(
+        default=None, gt=0, description="Default: BANYAN_BULK_MAX_TOKENS"
+    )
+
+
+class RunPatch(BaseModel):
+    action: Literal["pause", "resume", "cancel"] | None = None
+    add_budget: int | None = Field(default=None, gt=0)
+
+
+class RunNode(BaseModel):
+    node_id: uuid.UUID
+    status: Literal["none", "generating", "done", "failed"]
+
+
+class RunOut(BaseModel):
+    id: uuid.UUID
+    topic_id: uuid.UUID
+    status: RunStatus
+    token_budget: int
+    tokens_used: int
+    estimate: EstimateOut
+    nodes: list[RunNode] = Field(description="In outline order")
+    created_at: datetime
+
+
+class NotesOut(BaseModel):
+    node_id: uuid.UUID
+    version: int = Field(description="0: no notes yet")
+    content: NotesContent | None
+    updated_at: datetime | None
+
+
+class ExportOut(_Out):
+    id: uuid.UUID
+    topic_id: uuid.UUID
+    status: ExportStatus
+    error: str | None
+    notes_versions: dict[str, int] = Field(description="node id -> notes version used")
+    created_at: datetime

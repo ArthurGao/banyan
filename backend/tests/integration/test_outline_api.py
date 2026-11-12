@@ -128,9 +128,10 @@ async def test_confirming_the_outline(api: httpx.AsyncClient) -> None:
     url = f"/v1/topics/{topic['id']}/outline/confirm"
     assert (await api.post(url, json={})).status_code == 422  # empty outline
     await create_node(api, topic["id"], "A")
-    assert (await api.post(url, json={"explain_mode": "prefetch"})).status_code == 422  # B2
-    confirmed = await api.post(url, json={"explain_mode": "manual"})
-    assert confirmed.json()["outline_status"] == "confirmed"
+    confirmed = await api.post(url, json={"explain_mode": "prefetch"})
+    assert (confirmed.json()["outline_status"], confirmed.json()["explain_mode"]) == (
+        "confirmed", "prefetch",
+    )  # fmt: skip
     assert (await api.post(url, json={})).status_code == 409
 
 

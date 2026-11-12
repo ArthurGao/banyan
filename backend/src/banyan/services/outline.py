@@ -149,18 +149,27 @@ async def replace_outline(
     return created
 
 
-def outline_text(nodes: list[Node]) -> str:
-    """The outline as an indented list, for prompts."""
+def in_order(nodes: list[Node]) -> list[Node]:
+    """Depth first, siblings by position: the order the learner studies them (design §5.1)."""
     children = _siblings(nodes)
-    lines: list[str] = []
+    ordered: list[Node] = []
 
     def walk(parent: uuid.UUID | None) -> None:
         for n in children[parent]:
-            lines.append(f"{'  ' * n.depth}- {n.title}")
+            ordered.append(n)
             walk(n.id)
 
     walk(None)
-    return "\n".join(lines)
+    return ordered
+
+
+async def ordered_nodes(s: AsyncSession, topic_id: uuid.UUID) -> list[Node]:
+    return in_order(await topic_nodes(s, topic_id))
+
+
+def outline_text(nodes: list[Node]) -> str:
+    """The outline as an indented list, for prompts."""
+    return "\n".join(f"{'  ' * n.depth}- {n.title}" for n in in_order(nodes))
 
 
 def _child_depth(by_id: dict[uuid.UUID, Node], parent_id: uuid.UUID | None) -> int:

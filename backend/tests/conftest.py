@@ -26,11 +26,15 @@ from sqlalchemy.schema import DropSchema
 
 from banyan.cli import alembic_config
 from banyan.config import DEFAULT_DB_SCHEMA, TEST_SCHEMA_SUFFIX, Settings
+from banyan.jobs.runner import run_one
 from banyan.llm.fakes import FakeLLM
 from banyan.main import create_app
 from banyan.models import Base
 from banyan.steward import FakeSteward
 from banyan.storage.db import engine_scope, session_factory
+from banyan.worker.context import WorkerContext
+from banyan.worker.handlers import handlers
+from banyan.worker.run import queue_for
 
 TEST_SCHEMA = DEFAULT_DB_SCHEMA + TEST_SCHEMA_SUFFIX
 
@@ -61,7 +65,7 @@ API_TOKEN = "test-token-0123456789"
 def settings_for(url: str) -> Settings:
     """App settings for tests: no env file, schema `banyan_test` (which the validator refuses for
     real deployments, hence the copy)."""
-    settings = Settings(_env_file=None, database_url=url, api_token=API_TOKEN)  # type: ignore[arg-type]
+    settings = Settings(_env_file=None, database_url=url, api_token=API_TOKEN, run_worker=False)  # type: ignore[arg-type]
     return settings.model_copy(update={"db_schema": TEST_SCHEMA})
 
 
@@ -175,3 +179,20 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 def no_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in [k for k in os.environ if k.startswith("BANYAN_")]:
         monkeypatch.delenv(key)
+
+
+def worker_ctx(
+    db: Sessions, url: str, llm: FakeLLM | None = None, steward: FakeSteward | None = None,
+    **settings: Any,
+) -> WorkerContext:  # fmt: skip
+    """A worker on the test schema; `settings` override the test settings."""
+    resolved = settings_for(url).model_copy(update=settings)
+    return WorkerContext(db, (llm or FakeLLM()).client(), steward, resolved)
+
+
+async def run_next(ctx: WorkerContext, kinds: list[str] | None = None) -> str | None:
+    """Claims and runs one job (of `kinds`, default: every kind with a handler); its new state."""
+    queue = queue_for(ctx)
+    registry = handlers(ctx)
+    claimed = await queue.claim(kinds or list(registry))
+    return None if claimed is None else await run_one(queue, registry, claimed)

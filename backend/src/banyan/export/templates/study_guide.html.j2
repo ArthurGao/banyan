@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="und">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ topic_title }}</title>
+<style>
+:root {
+  --bg: #fbfaf7; --fg: #1c1b18; --muted: #6b6860; --border: #e3e0d8; --panel: #ffffff;
+  --accent: #2f6f4f; color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151513; --fg: #ecebe6; --muted: #a3a097; --border: #2e2d29; --panel: #1d1c1a;
+    --accent: #7fc29b; color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); line-height: 1.6;
+  font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif; }
+main { max-width: 52rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+h1 { font-size: 1.8rem; margin: 0 0 .25rem; }
+.goal { color: var(--muted); margin: 0 0 1.5rem; }
+nav.toc { background: var(--panel); border: 1px solid var(--border); border-radius: .5rem;
+  padding: .75rem 1rem; margin-bottom: 2rem; }
+nav.toc ol { margin: .25rem 0; padding-left: 1.25rem; }
+nav.toc a { color: var(--accent); text-decoration: none; }
+section.node { border-top: 1px solid var(--border); padding-top: 1rem; margin-top: 1.5rem; }
+section.depth-1, section.depth-2 { margin-left: 1rem; }
+.summary { color: var(--muted); font-style: italic; }
+details { background: var(--panel); border: 1px solid var(--border); border-radius: .5rem;
+  padding: .5rem .75rem; margin: .5rem 0; }
+summary { cursor: pointer; font-weight: 600; }
+pre { background: var(--panel); border: 1px solid var(--border); border-radius: .375rem;
+  padding: .75rem; overflow-x: auto; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+table { border-collapse: collapse; } th, td { border: 1px solid var(--border); padding: .25rem .5rem; }
+.empty { color: var(--muted); }
+footer { margin-top: 3rem; color: var(--muted); font-size: .85rem; border-top: 1px solid var(--border);
+  padding-top: .75rem; }
+{{ assets.code_light | safe }}
+@media (prefers-color-scheme: dark) {
+{{ assets.code_dark | safe }}
+}
+{{ assets.katex_css | safe }}
+</style>
+</head>
+<body>
+<main>
+<h1>{{ topic_title }}</h1>
+{% if goal %}<p class="goal">{{ goal }}</p>{% endif %}
+<nav class="toc" aria-label="Contents">
+<strong>Contents</strong>
+<ol>
+{% for anchor, node in nodes %}
+<li class="toc-depth-{{ node.depth }}" style="margin-left: {{ node.depth }}rem"><a href="#{{ anchor }}">{{ node.title }}</a></li>
+{% endfor %}
+</ol>
+</nav>
+{% for anchor, node in nodes %}
+<section class="node depth-{{ node.depth }}" id="{{ anchor }}">
+{% if node.depth == 0 %}<h2>{{ node.title }}</h2>{% elif node.depth == 1 %}<h3>{{ node.title }}</h3>{% else %}<h4>{{ node.title }}</h4>{% endif %}
+{% if node.summary %}<p class="summary">{{ node.summary }}</p>{% endif %}
+{% if node.notes %}
+{% if node.notes.summary %}{{ node.notes.summary | markdown | safe }}{% endif %}
+{% if node.notes.key_points %}
+<h5>Key points</h5>
+<ul>{% for point in node.notes.key_points %}<li>{{ point | markdown | safe }}</li>{% endfor %}</ul>
+{% endif %}
+{% for example in node.notes.examples %}
+<details><summary>{{ example.title }}</summary>{{ example.body_md | markdown | safe }}</details>
+{% endfor %}
+{% if node.notes.pitfalls %}
+<h5>Pitfalls</h5>
+<ul>{% for pitfall in node.notes.pitfalls %}<li>{{ pitfall | markdown | safe }}</li>{% endfor %}</ul>
+{% endif %}
+{% for h in node.notes.branch_highlights %}
+<details class="highlight"><summary>{{ h.question }}</summary>{{ h.answer_md | markdown | safe }}</details>
+{% endfor %}
+{% else %}
+<p class="empty">No notes yet.</p>
+{% endif %}
+</section>
+{% endfor %}
+<footer>
+<p>Generated {{ generated_at }} · template {{ template_version }} · KaTeX {{ katex_version }}</p>
+<p>Notes versions: {% for anchor, node in nodes %}{{ node.title }} v{{ node.version }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+{% if sources %}<p>Answers by source: {% for name, share in sources %}{{ name }} {{ share }}%{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+</footer>
+</main>
+<script>{{ assets.katex_js | safe }}</script>
+<script>
+document.querySelectorAll(".math").forEach(function (el) {
+  try { katex.render(el.textContent, el, { displayMode: el.classList.contains("block"), throwOnError: false }); } catch (e) {}
+});
+</script>
+</body>
+</html>

@@ -20,6 +20,11 @@ dependencies = [
     # Model access behind the role layer (banyan.llm only). Pinned exactly: provider behaviour and
     # usage reporting change between releases.
     "pydantic-ai-slim[openai,anthropic]==2.63.0",
+    # HTML export (design §10.2), pinned: the exported bytes must not change under a library update.
+    "markdown-it-py==4.2.0",
+    "mdit-py-plugins==0.6.1",
+    "pygments==2.21.0",
+    "nh3==0.3.7",
     # Response models generated from steward's OpenAPI; used only inside banyan.steward.
     "llm-steward-client",
 ]
@@ -36,6 +41,7 @@ dev = [
     "import-linter>=2.1",
     "pre-commit>=4.0",
     "types-pyyaml>=6.0",
+    "types-pygments>=2.19",
 ]
 # `uv sync --group contract`: llm-steward itself, to run the contract tests on its embedded mode
 # (`-m steward`). Heavy and never needed to run Banyan.

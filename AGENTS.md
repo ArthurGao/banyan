@@ -38,10 +38,10 @@ If a change must contradict the design, update the design in the same change and
 
 ## Current stage
 
-**B1 — learning tree — backend done** (API, role layer, pipeline skeleton, SSE; the screens are another
-session's, and B1's phone/iPad acceptance closes with them). B2 next. Track the checklist in design §12;
-ticked items are done and verified. Open questions are in design §13 — do not decide them silently; ask,
-or implement the conservative option behind config.
+**B2 — job runtime, explanation modes, notes, export — backend done** (the screens are another
+session's). B3 next. Track the checklist in design §12; ticked items are done and verified. Open
+questions are in design §13 — do not decide them silently; ask, or implement the conservative option
+behind config.
 
 ## Non-negotiable rules
 
@@ -94,7 +94,7 @@ or implement the conservative option behind config.
 docker compose up -d db                         # PostgreSQL + pgvector
 cd backend && uv run banyan migrate             # Alembic upgrade head
 cd backend && uv run banyan serve               # API on 127.0.0.1:8800
-cd backend && uv run banyan worker              # job worker
+cd backend && uv run banyan worker              # job worker alone (serve also runs one unless BANYAN_RUN_WORKER=false)
 cd backend && uv run pytest                     # unit + integration, fakes only
 cd backend && uv run ruff check && uv run ruff format --check && uv run mypy && uv run lint-imports
 cd frontend && pnpm dev | pnpm build | pnpm test | pnpm lint | pnpm typecheck | pnpm gen:api

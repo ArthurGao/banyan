@@ -28,7 +28,12 @@ from banyan.steward import StewardUnavailable
 
 
 def _context(inp: AskInput) -> CallContext:
-    return CallContext(topic_id=inp.topic_id, message_id=inp.message_id, path_kind=inp.mode)
+    return CallContext(
+        topic_id=inp.topic_id,
+        message_id=inp.message_id,
+        path_kind=inp.mode,
+        generation_run_id=inp.generation_run_id,
+    )
 
 
 async def scope(inp: AskInput, deps: Deps) -> ScopeOut:

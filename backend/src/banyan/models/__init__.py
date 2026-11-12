@@ -3,9 +3,11 @@ schema (storage/db.py)."""
 
 from banyan.models.base import Base
 from banyan.models.enums import (
+    ACTIVE_RUN,
     BranchKind,
     ErrorKind,
     ExplainMode,
+    ExportStatus,
     Feedback,
     JobKind,
     JobStatus,
@@ -16,18 +18,34 @@ from banyan.models.enums import (
     NodeOrigin,
     NodeStatus,
     OutlineStatus,
+    RunStatus,
     Source,
     TopicStatus,
 )
-from banyan.models.tables import Branch, Job, Message, Node, Topic, UsageLog
+from banyan.models.queue import enqueue
+from banyan.models.tables import (
+    Branch,
+    Export,
+    GenerationRun,
+    Job,
+    Message,
+    Node,
+    NodeNotes,
+    Topic,
+    UsageLog,
+)
 
 __all__ = [
+    "ACTIVE_RUN",
     "Base",
     "Branch",
     "BranchKind",
     "ErrorKind",
     "ExplainMode",
+    "Export",
+    "ExportStatus",
     "Feedback",
+    "GenerationRun",
     "Job",
     "JobKind",
     "JobStatus",
@@ -37,11 +55,14 @@ __all__ = [
     "MessageRole",
     "MessageStatus",
     "Node",
+    "NodeNotes",
     "NodeOrigin",
     "NodeStatus",
     "OutlineStatus",
+    "RunStatus",
     "Source",
     "Topic",
     "TopicStatus",
     "UsageLog",
+    "enqueue",
 ]

@@ -149,6 +149,7 @@ VALID = {
         "node.explain": "anthropic/strong",
         "answer.compose": "anthropic/strong",
         "judge.freshness": "ollama/qwen3:8b",
+        "notes.update": "ollama/qwen3:8b",
     },
 }  # fmt: skip
 
@@ -169,7 +170,7 @@ def test_a_valid_config_loads_and_builds_every_role(
     client = RoleClient.from_config(config, timeout_s=10)
     assert client.provenance(Role.JUDGE_FRESHNESS) == "judge.freshness:ollama:qwen3:8b"
     assert client.configured(Role.OUTLINE_GENERATE)
-    assert not client.configured(Role.NOTES_UPDATE)
+    assert not client.configured(Role.JUDGE_SUFFICIENCY)
 
 
 @pytest.mark.parametrize(

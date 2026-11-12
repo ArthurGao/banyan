@@ -109,3 +109,20 @@ class JobStatus(StrEnum):
     DONE = "done"
     FAILED = "failed"
     DEAD = "dead"
+
+
+class RunStatus(StrEnum):
+    RUNNING = "running"
+    PAUSED = "paused"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    CANCELLED = "cancelled"
+    DONE = "done"
+
+
+ACTIVE_RUN = (RunStatus.RUNNING, RunStatus.PAUSED, RunStatus.BUDGET_EXHAUSTED)
+
+
+class ExportStatus(StrEnum):
+    PENDING = "pending"
+    DONE = "done"
+    FAILED = "failed"

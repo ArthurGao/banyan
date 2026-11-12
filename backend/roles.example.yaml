@@ -19,5 +19,6 @@ roles:
   outline.generate: anthropic/<strong-model>
   node.explain: anthropic/<strong-model>
   answer.compose: anthropic/<strong-model>
+  notes.update: deepseek/<cheap-model>  # required from B2
   # Optional in B1 (the step records "skipped" without it), required later:
   judge.freshness: ollama/qwen3:8b

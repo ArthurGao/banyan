@@ -24,9 +24,10 @@ src/banyan/
   steward/           StewardClient Protocol, HttpStewardClient (httpx + the SDK's models), FakeSteward, mapping.py
   jobs/              generic job runtime: claim (SKIP LOCKED), lease recovery, retry with backoff,
                      dead-letter, idempotency and dedupe keys; imports nothing else from banyan
-  worker/            `banyan worker` entry point and job handlers (node_explain, kb_propose, notes_update, …)
-                     registered with jobs/; handlers call services and the same pipeline as requests
-  export/            Jinja2 templates and assets inlined into one HTML file
+  worker/            handlers by kind (collection_ensure, node_explain, notes_update; kb_* from B3), the
+                     stale-stream sweeper, run.py; `banyan worker` runs it alone, `banyan serve` runs it
+                     in-process unless BANYAN_RUN_WORKER=false
+  export/            the HTML study guide renderer, its template and the vendored KaTeX assets
   models/            SQLAlchemy tables, enums
   storage/           engine, session, migrations/
   prompts/           *.j2 — one template per role

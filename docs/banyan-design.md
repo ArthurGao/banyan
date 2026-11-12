@@ -157,7 +157,7 @@ branches
 generation_runs                      -- 一次"全部生成"（§5.1）
   topic_id, status (running|paused|budget_exhausted|cancelled|done)
   node_ids uuid[]                    -- 本次要生成的节点，按大纲深度优先顺序
-  token_budget int, tokens_used int  -- tokens_used 由 usage_log 按 run 汇总
+  token_budget int                   -- 已用 token 不存列，每次由 usage_log.generation_run_id 汇总（B2）
   estimate jsonb                     -- 开始前给用户看的估算 {nodes, tokens_per_node, total, basis}
 
 messages
@@ -175,7 +175,8 @@ messages
   superseded_by (nullable)   -- 反馈后重答，旧消息指向新消息
 
 node_notes
-  node_id (pk), content jsonb, version int
+  node_id (unique), content jsonb, version int
+  incorporated jsonb                -- 已并入的讲解 message id 与已关闭支线 id（B2）：合并后的任务仍能把新材料各取一次
   -- content: {summary, key_points[], examples[], pitfalls[], branch_highlights[{branch_id, question, answer_md, message_id}]}
 
 usage_log
@@ -207,6 +208,12 @@ exports
   任务由其他 worker 重领。重试指数退避，`attempts ≥ BANYAN_JOB_MAX_ATTEMPTS` 进 `dead`。**所有重试必须在首次尝试后
   24 小时内结束**（steward 的 `Idempotency-Key` 只保留 24 小时，§8.4），所以退避上限与最大次数的乘积受此约束。
 - `idempotency_key` 由业务来源派生（如 `kb_propose:<message_id>`），不是随机值，重试复用同一个。
+- **任务运行时的细则（B2 实现，`banyan/jobs/`）**：每次领取生成一个 token 写进 `locked_by`，心跳、完成、失败都要匹配它，
+  丢了租约的处理器被取消、结果作废；有并发上限的种类在一个事务级 advisory lock 下"计数 + 领取"；同一 `dedupe_key` 同时只跑一个任务；
+  时间一律取数据库时钟。暂停或超预算的 run 把等待中的任务挂起（`run_after = infinity`），恢复时立即到期；run 的状态在它的任务结束
+  （done / dead）时结算，读进度不写库。一个 run 启动时若某节点已有 prefetch 任务在等，那个任务改归这个 run。
+- **流式回答保活**：回答进行中每 `BANYAN_STREAM_STALE_S / 3` 刷新一次占位消息的 `updated_at`；清扫器只把超过 `BANYAN_STREAM_STALE_S`
+  没刷新的 `streaming` 占位改成 `failed`（进程死掉留下的），不会误伤正在进行的长回答。
 - **steward 的 4xx 是终态**：steward 把 4xx 答复存在该幂等键下并在 24 小时内原样重放（只有 5xx 释放键，B0 spike 实测）。所以
   `StewardRejected`（4xx）让任务直接进 `dead`，不重试；修好原因（如 key 缺 scope）后由人重新入队，新任务带新的键
   （原键加 `:<n>` 后缀）。`StewardUnavailable`（网络、超时、5xx）照常退避重试。
@@ -237,7 +244,7 @@ exports
 
 - **先估算再确认**：`estimate = 节点数 × 每节点 token`。每节点 token 取本机 `usage_log` 中 `node.explain` 最近 50 次的中位数；没有历史时用 `BANYAN_EXPLAIN_TOKENS_ESTIMATE`（默认 20,000）。前端展示节点数、估算总 token 与依据，用户确认后才开始，可调整 `token_budget`（默认 `BANYAN_BULK_MAX_TOKENS`）。
 - **执行**：为每个节点入队一个 `node_explain` 任务（`idempotency_key=explain:<node_id>`，`dedupe_key` 相同），由 worker 执行与交互式讲解相同的 pipeline。同时运行的 `node_explain` 不超过 `BANYAN_BULK_CONCURRENCY`（默认 2），避免撞到 provider 限流或订阅额度。
-- **预算**：worker 领取下一个节点前汇总 `usage_log` 中该 run 的 token；若 `tokens_used + 每节点估算 > token_budget`，run 转为 `budget_exhausted` 并停止领取，前端提示“已用 X，继续需要追加预算”。已在运行的节点跑完不中断。
+- **预算**：worker 领取下一个节点前汇总 `usage_log` 中该 run 的 token；若 `tokens_used + 每节点估算 > token_budget`，run 转为 `budget_exhausted` 并停止领取，前端提示“已用 X，继续需要追加预算”。已在运行的节点跑完不中断，所以并发 > 1 时最多超出 `并发 - 1` 个节点的量。追加预算或 `resume` 后，该 run 等待中的任务立即到期（不等退避）。
 - **暂停 / 取消**：`paused` 时 worker 不再领取该 run 的任务，`running` 恢复；`cancelled` 把未领取的任务标为 `dead`（`last_error=cancelled`）。
 - **失败**：单个节点按任务重试规则重试，进 `dead` 后在进度里标红，可单独重试；其余节点不受影响。全部节点 `done` 或 `dead` 时 run 为 `done`。
 - **与交互式讲解的互斥**：同一节点的讲解只能有一个 `streaming` 消息（§9）。用户打开一个正在后台生成的节点时，看到“生成中”并轮询；节点已有 `done` 的讲解时，`node_explain` 任务直接成功返回（no-op）。
@@ -547,7 +554,8 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 | GET | `/topics/{id}/generation/estimate` | 全部生成的估算：待生成节点数、每节点 token 与依据、总量 |
 | POST | `/topics/{id}/generation-runs` | 开始全部生成，带 `token_budget`；同一主题同时只能有一个未结束的 run（409） |
 | GET | `/generation-runs/{id}` | 进度：各节点状态、`tokens_used`、run 状态（前端轮询） |
-| PATCH | `/generation-runs/{id}` | `pause` / `resume` / `cancel` / 追加 `token_budget` |
+| PATCH | `/generation-runs/{id}` | `{action: pause|resume|cancel, add_budget}`；已结束的 run 返回 409 |
+| POST | `/generation-runs/{id}/nodes/{node_id}/retry` | 单节点重试 |
 | GET | `/topics` | 主题列表（含进度） |
 | GET | `/topics/{id}` | 主题详情 + 大纲树 + 节点状态 |
 | PATCH | `/topics/{id}` | 修改标题、目标、水平、指令、状态 |
@@ -566,9 +574,9 @@ steward 的 MCP 已可用（工具 `remember`、`recall`、`forget`、`suggest_k
 | GET | `/branches/{id}/messages/latest` | 流中断后取回最新一条 assistant 消息（见下方 SSE 语义） |
 | GET | `/memory` | 学习者记忆列表（steward memories，§8.5） |
 | DELETE | `/memory/{id}` | 删除一条记忆 |
-| GET | `/nodes/{id}/notes` | 节点笔记 |
-| POST | `/topics/{id}/export` | 生成 HTML，返回 export id |
-| GET | `/exports/{id}` | 下载 HTML（`text/html`，附件或内联） |
+| GET | `/nodes/{id}/notes` | 节点笔记（还没有时 `version=0`、`content=null`）。`GET /nodes/{id}` 另带 `explanation_status`（none / generating / done / failed），打开已有讲解的节点会触发 prefetch |
+| POST | `/topics/{id}/export` | 在请求内渲染（线程里，毫秒级，不调模型），返回 export（`status` done 或 failed + `error`）；`export_render` 任务类型暂不使用 |
+| GET | `/exports/{id}` | HTML（`text/html`；`?download=true` 时作为附件）；失败的 export 返回 409 |
 | GET | `/memory/candidates` | 待确认的 KB 候选卡片（steward `awaiting_user`，§8.5） |
 | POST | `/memory/candidates/{id}` | `accept` / `reject` |
 | GET | `/usage` | 按主题 / role / 路径统计 token 与命中率 |
@@ -618,8 +626,8 @@ error     {code, message}
 ### 10.2 导出
 
 - Jinja2 模板渲染全部节点笔记，结构与大纲一致：目录、各节点小结、要点、示例、易错点、支线精华（可折叠）。
-- 渲染栈（全部 Python 端，无 JS 运行时）：Markdown → HTML 用 `markdown-it-py`（GFM 表格、任务列表）；代码高亮用 **Pygments** 服务端渲染，内联其 CSS（Shiki 是 JS 库，后端跑不了，只在前端预览里用）；数学公式保留 `$…$` 原文，由内联的 KaTeX `auto-render` JS 在打开时渲染，KaTeX CSS 与 woff2 字体 base64 内联（约 1.5 MB，可接受）。HTML 输出经 `nh3` 清洗（白名单标签 / 属性），防止笔记内容注入脚本。
-- 单文件：CSS、JS、字体全部内联；不发起任何网络请求（CI 用无头浏览器断言零外部请求）。
+- 渲染栈（全部 Python 端，无 JS 运行时）：Markdown → HTML 用 `markdown-it-py`（GFM 表格、任务列表）；代码高亮用 **Pygments** 服务端渲染，内联其 CSS（Shiki 是 JS 库，后端跑不了，只在前端预览里用）；数学公式由 `mdit-py-plugins` 的 dollarmath 输出为 `span/div.math`（避免 Markdown 改写 `_`、`*`），打开时由内联的 `katex.min.js` 逐个 `katex.render`；KaTeX 0.19.1 由 `backend/scripts/vendor_katex.py` 按 npm sha512 校验后放入仓库，CSS 与 20 个 woff2 字体 base64 内联、woff/ttf 后备去掉（整份约 650 KB）。原始 HTML 由 markdown-it 转义（`html: False`），nh3 再按白名单清洗（不允许 img、iframe、style、script）。HTML 输出经 `nh3` 清洗（白名单标签 / 属性），防止笔记内容注入脚本。
+- 单文件：CSS、JS、字体全部内联；不发起任何网络请求。B2 用静态检查断言（任何 src/srcset/poster 与 CSS `url()` 都必须是 `data:`，不允许 link/img/iframe 等会取资源的标签与 `@import`），没有在后端 CI 里起无头浏览器；前端会话可以在 e2e 里再加一个浏览器断言。
 - 亮色 / 暗色：`:root` CSS 变量，`prefers-color-scheme: dark` 覆盖。
 - 页脚：生成时间、各节点笔记版本、来源统计（kb / llm / web 占比）、模板版本。
 - **确定性的定义**：同一组 `node_notes` 版本 + 同一模板版本 + 同一资产包，生成的 HTML 除页脚生成时间外逐字节相同；测试用固定时钟断言。渲染失败（模板错误、笔记 JSON 不合法）→ `exports.status=failed` 并记录 `error`，不留半成品。
@@ -709,18 +717,31 @@ error     {code, message}
 
 ### B2 — 任务运行时、讲解生成方式、笔记与导出
 
-- [ ] `collection_ensure` 任务：`topics.steward_collection_id` 已有值就跳过（steward 的 collection 列表不分页、不按名字过滤，`ensure_collection` 每次都列全部，只该在首次和崩溃恢复时跑）
-- [ ] `banyan/jobs/` 通用任务运行时（领取 `SKIP LOCKED`、租约回收、重试、退避、死信、幂等键、`dedupe_key`）；import-linter 契约禁止它导入 Banyan 其他包；业务处理器在 `worker/handlers/` 注册
-- [ ] `node_explain` 任务（复用 pipeline，§6.0）；`explain_mode=prefetch` 与 `all`；`generation_runs`、估算、整次预算、并发上限、暂停 / 继续 / 取消、单节点重试；与交互式讲解的互斥
-- [ ] 前端：讲解生成方式选择、估算确认、进度条与节点状态
-- [ ] `notes.update` 与 node_notes；触发条件（§5.4）
-- [ ] HTML 导出（单文件、亮暗、目录、折叠）；前端预览、下载、分享
+- [x] `collection_ensure` 任务：`topics.steward_collection_id` 已有值就跳过（steward 的 collection 列表不分页、不按名字过滤，`ensure_collection` 每次都列全部，只该在首次和崩溃恢复时跑）
+- [x] `banyan/jobs/` 通用任务运行时（领取 `SKIP LOCKED`、租约回收、重试、退避、死信、幂等键、`dedupe_key`）；import-linter 契约禁止它导入 Banyan 其他包；业务处理器在 `worker/handlers/` 注册
+- [x] `node_explain` 任务（复用 pipeline，§6.0）；`explain_mode=prefetch` 与 `all`；`generation_runs`、估算、整次预算、并发上限、暂停 / 继续 / 取消、单节点重试；与交互式讲解的互斥
+- [ ] 前端：讲解生成方式选择、估算确认、进度条与节点状态——另一个会话负责
+- [x] `notes.update` 与 node_notes；触发条件（§5.4）
+- [x] HTML 导出（单文件、亮暗、目录、折叠）（后端）；前端预览、下载、分享——另一个会话负责
 - 验收：
   - 10 节点主题用 FakeLLM “全部生成”完成，每个节点恰好一条讲解
   - 运行中杀掉 worker，重启后租约过期的任务被重领，没有重复讲解
   - 预算设为约 3 个节点的量时 run 停在 `budget_exhausted`，追加预算后继续完成
   - `prefetch` 下打开第 N 节后第 N+1 节自动生成
   - 一个 5 节点主题导出的 HTML 离线可用，结构与大纲一致
+- **收尾记录（2026-11-12，后端）**：
+  - 验收：五条都有测试并通过（`tests/integration/test_generation_runs.py`、`test_export.py`）；另在 `BANYAN_FAKES=1` 的真服务器上
+    跑 9 节点全部生成，中途 `kill -9` 再重启，6 秒内完成、每节点恰好一条讲解、死进程留下的 2 个占位为 failed，导出 657 KB、无外部引用。
+    后端 217 个测试 + contract spike 全绿。
+  - 顺带修了 B1 的潜在 bug（先写失败的测试）：节点已有一个等待中的 notes_update 时，讲解提交里的同 dedupe 任务插入违反唯一索引，
+    整个回答提交失败；改为入队时冲突即合并。
+  - /simplify（两个代理、四个角度）：run 进度改为整批几次查询，读不写库；run 在任务结束时结算（原来最后一个节点 dead 时要等人来读）；
+    暂停 / 超预算挂起任务不再每 10 秒轮询；队列用数据库时钟、少一次往返；同一 dedupe 键同时只跑一个；usage 按 run 建索引；笔记改为
+    每条支线一个水位（重开再关的支线，新轮次原来进不了笔记）；"已讲解"判定、token 求和、Runtime 构造各只留一份；测试 helper 合一。
+    没做：导出未变时复用上次结果、estimate 查询的索引、worker 轮询重构（这个规模不值得）。
+  - Codex：四条成立并修复（先写失败的测试）——并发领取可超出并发上限（advisory lock）；同进程多个 slot 共用 worker id，过期租约没有
+    隔离（每次领取一个 token，丢租约即取消处理器）；prefetch 任务吞掉 run 的同节点任务后与 run 脱钩（改归 run）；清扫器会误伤超过
+    10 分钟的长回答（回答进行中保活）。修复涉及 §4，按规则对修复再跑了一次 Codex：没有发现问题。
 
 ### B3 — steward 集成（KB 优先）
 

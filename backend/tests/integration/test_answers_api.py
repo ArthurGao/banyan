@@ -14,10 +14,11 @@ import pytest
 from banyan.ids import uuid7
 from banyan.llm import CallContext, Role, UsageCollector, UsageRecord
 from banyan.llm.fakes import FakeLLM
-from banyan.models import Job, Message, MessageRole, MessageStatus, UsageLog
+from banyan.models import Job, JobKind, Message, MessageRole, MessageStatus, UsageLog
 from banyan.pipeline import record
 from banyan.services import answers
 from banyan.steward import FakeSteward
+from banyan.worker.sweep import sweep_stale_streams
 from tests.conftest import Sessions, create_node, create_topic, rows, sse_events
 
 EXPLANATION = "A Service gives a set of pods one stable virtual IP and DNS name."
@@ -299,3 +300,48 @@ async def test_latest_is_deterministic_when_timestamps_tie(
     for _ in range(5):
         latest = (await api.get(f"/v1/branches/{branch['id']}/messages/latest")).json()
         assert latest["content_md"] == "newer"
+
+
+async def test_an_answer_commits_even_when_a_notes_update_is_already_waiting(
+    api: httpx.AsyncClient, fake_llm: FakeLLM, db: Sessions
+) -> None:
+    """The explanation's notes_update shares dedupe key notes:<node> with one already waiting (e.g.
+    from a closed branch): the second is merged away, not an error that loses the answer."""
+    node = await _node(api)
+    async with db() as s:
+        s.add(Job(kind=JobKind.NOTES_UPDATE, idempotency_key="notes_update:earlier",
+                  payload={"node_id": node["id"]}, dedupe_key=f"notes:{node['id']}"))  # fmt: skip
+        await s.commit()
+    fake_llm.script(Role.JUDGE_FRESHNESS, NOT_FRESH)
+    fake_llm.script(Role.NODE_EXPLAIN, EXPLANATION)
+    events = sse_events((await api.post(f"/v1/nodes/{node['id']}/explain")).text)
+    assert events[-1][0] == "done", events[-1]
+    db_rows = await _db(db)
+    assert [m.status for m in db_rows["messages"]] == [MessageStatus.DONE]
+    assert sorted(j.kind for j in db_rows["jobs"]) == [JobKind.KB_PROPOSE, JobKind.NOTES_UPDATE]
+
+
+async def test_a_long_answer_is_not_swept_as_stale_while_it_runs(
+    api: httpx.AsyncClient, db: Sessions
+) -> None:
+    """The sweeper fails abandoned placeholders only: a running answer keeps its own fresh."""
+    node = await _node(api)
+    fake = FakeLLM({Role.JUDGE_FRESHNESS: [NOT_FRESH], Role.NODE_EXPLAIN: ["x" * 120]},
+                   delay_s=0.1)  # about a second of streaming  # fmt: skip
+    rt = answers.Runtime(llm=fake.client(), steward=FakeSteward(), sessions=db, user_id="owner",
+                         history_budget=2000, stale_s=0.3)  # fmt: skip
+    async with rt.sessions() as s:
+        inp = await answers.start_explain(s, uuid.UUID(node["id"]))
+
+    async def sweep_often() -> None:
+        while True:
+            await sweep_stale_streams(db, older_than_s=0.3)
+            await asyncio.sleep(0.05)
+
+    sweeper = asyncio.create_task(sweep_often())
+    try:
+        events = [e async for e in answers.stream_answer(inp, rt)]
+    finally:
+        sweeper.cancel()
+    assert type(events[-1]).__name__ == "DoneEvent"
+    assert [m.status for m in (await _db(db))["messages"]] == [MessageStatus.DONE]

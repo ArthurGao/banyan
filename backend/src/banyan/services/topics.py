@@ -20,9 +20,6 @@ from banyan.models import (
 )
 from banyan.services.lookup import get_or_404
 
-# Bulk and prefetch generation need the job runtime (B2).
-AVAILABLE_EXPLAIN_MODES = frozenset({ExplainMode.MANUAL})
-
 
 @dataclass(frozen=True)
 class TopicProgress:
@@ -99,8 +96,6 @@ async def confirm_outline(s: AsyncSession, topic_id: uuid.UUID, mode: ExplainMod
     topic = await lock_topic(s, topic_id)
     if topic.outline_status == OutlineStatus.CONFIRMED:
         raise Conflict("the outline is already confirmed")
-    if mode not in AVAILABLE_EXPLAIN_MODES:
-        raise Unprocessable(f"explain_mode {mode.value!r} is not available yet (B2)")
     has_nodes = await s.scalar(select(func.count(Node.id)).where(Node.topic_id == topic_id))
     if not has_nodes:
         raise Unprocessable("an empty outline cannot be confirmed")

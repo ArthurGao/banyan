@@ -35,6 +35,19 @@ class Settings(BaseSettings):
     # Branch history sent with a question, in estimated tokens (design §6.5).
     history_budget: int = Field(default=2000, gt=0)
 
+    # Jobs and the worker (design §4, §5.1.1).
+    run_worker: bool = (
+        True  # `banyan serve` also runs the worker; false when `banyan worker` runs it
+    )
+    worker_slots: int = Field(default=4, ge=1, le=32)
+    job_lease_s: float = Field(default=300.0, gt=0)
+    job_max_attempts: int = Field(default=6, ge=1)
+    bulk_concurrency: int = Field(default=2, ge=1)
+    bulk_max_tokens: int = Field(default=500_000, gt=0)
+    explain_tokens_estimate: int = Field(default=20_000, gt=0)
+    # A `streaming` answer older than this belongs to a process that died; it becomes `failed`.
+    stream_stale_s: float = Field(default=600.0, gt=0)
+
     # llm-steward (design §8.1): all three or none. Unset URL means steward is not configured and
     # /health says so. The API key has scopes read+write; the review key (scope review) is used
     # only to create collections and deprecate entries, because a review key's writes go live

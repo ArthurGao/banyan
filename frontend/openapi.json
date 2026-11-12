@@ -167,6 +167,60 @@
         "title": "ConfirmOutline",
         "type": "object"
       },
+      "EstimateOut": {
+        "properties": {
+          "basis": {
+            "description": "history: median of the last 50 explanations; default: configured guess",
+            "enum": [
+              "history",
+              "default"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "nodes": {
+            "description": "Nodes still without an explanation",
+            "title": "Nodes",
+            "type": "integer"
+          },
+          "tokens_per_node": {
+            "title": "Tokens Per Node",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "nodes",
+          "tokens_per_node",
+          "total",
+          "basis"
+        ],
+        "title": "EstimateOut",
+        "type": "object"
+      },
+      "Example": {
+        "properties": {
+          "body_md": {
+            "maxLength": 8000,
+            "title": "Body Md",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 300,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "body_md"
+        ],
+        "title": "Example",
+        "type": "object"
+      },
       "ExplainMode": {
         "enum": [
           "all",
@@ -174,6 +228,66 @@
           "manual"
         ],
         "title": "ExplainMode",
+        "type": "string"
+      },
+      "ExportOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "notes_versions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "node id -> notes version used",
+            "title": "Notes Versions",
+            "type": "object"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ExportStatus"
+          },
+          "topic_id": {
+            "format": "uuid",
+            "title": "Topic Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "topic_id",
+          "status",
+          "error",
+          "notes_versions",
+          "created_at"
+        ],
+        "title": "ExportOut",
+        "type": "object"
+      },
+      "ExportStatus": {
+        "enum": [
+          "pending",
+          "done",
+          "failed"
+        ],
+        "title": "ExportStatus",
         "type": "string"
       },
       "Feedback": {
@@ -286,6 +400,42 @@
           "checks"
         ],
         "title": "HealthOut",
+        "type": "object"
+      },
+      "Highlight": {
+        "properties": {
+          "answer_md": {
+            "maxLength": 8000,
+            "title": "Answer Md",
+            "type": "string"
+          },
+          "branch_id": {
+            "title": "Branch Id",
+            "type": "string"
+          },
+          "message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Id"
+          },
+          "question": {
+            "maxLength": 4000,
+            "title": "Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "branch_id",
+          "question",
+          "answer_md"
+        ],
+        "title": "Highlight",
         "type": "object"
       },
       "Language": {
@@ -512,6 +662,17 @@
               }
             ]
           },
+          "explanation_status": {
+            "description": "generating: a background job or another stream is making it (design §5.1.1)",
+            "enum": [
+              "none",
+              "generating",
+              "done",
+              "failed"
+            ],
+            "title": "Explanation Status",
+            "type": "string"
+          },
           "node": {
             "$ref": "#/components/schemas/NodeOut"
           }
@@ -519,6 +680,7 @@
         "required": [
           "node",
           "explanation",
+          "explanation_status",
           "branches"
         ],
         "title": "NodeDetail",
@@ -673,6 +835,94 @@
         "title": "NodeStatus",
         "type": "string"
       },
+      "NotesContent": {
+        "properties": {
+          "branch_highlights": {
+            "items": {
+              "$ref": "#/components/schemas/Highlight"
+            },
+            "maxItems": 60,
+            "title": "Branch Highlights",
+            "type": "array"
+          },
+          "examples": {
+            "items": {
+              "$ref": "#/components/schemas/Example"
+            },
+            "maxItems": 30,
+            "title": "Examples",
+            "type": "array"
+          },
+          "key_points": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 60,
+            "title": "Key Points",
+            "type": "array"
+          },
+          "pitfalls": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Pitfalls",
+            "type": "array"
+          },
+          "summary": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "title": "NotesContent",
+        "type": "object"
+      },
+      "NotesOut": {
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NotesContent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "node_id": {
+            "format": "uuid",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "version": {
+            "description": "0: no notes yet",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "node_id",
+          "version",
+          "content",
+          "updated_at"
+        ],
+        "title": "NotesOut",
+        "type": "object"
+      },
       "OutlineStatus": {
         "enum": [
           "draft",
@@ -704,6 +954,148 @@
         ],
         "title": "PathEntry",
         "type": "object"
+      },
+      "RunCreate": {
+        "properties": {
+          "token_budget": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Default: BANYAN_BULK_MAX_TOKENS",
+            "title": "Token Budget"
+          }
+        },
+        "title": "RunCreate",
+        "type": "object"
+      },
+      "RunNode": {
+        "properties": {
+          "node_id": {
+            "format": "uuid",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "none",
+              "generating",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "status"
+        ],
+        "title": "RunNode",
+        "type": "object"
+      },
+      "RunOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "estimate": {
+            "$ref": "#/components/schemas/EstimateOut"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "nodes": {
+            "description": "In outline order",
+            "items": {
+              "$ref": "#/components/schemas/RunNode"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "token_budget": {
+            "title": "Token Budget",
+            "type": "integer"
+          },
+          "tokens_used": {
+            "title": "Tokens Used",
+            "type": "integer"
+          },
+          "topic_id": {
+            "format": "uuid",
+            "title": "Topic Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "topic_id",
+          "status",
+          "token_budget",
+          "tokens_used",
+          "estimate",
+          "nodes",
+          "created_at"
+        ],
+        "title": "RunOut",
+        "type": "object"
+      },
+      "RunPatch": {
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pause",
+                  "resume",
+                  "cancel"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "add_budget": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Add Budget"
+          }
+        },
+        "title": "RunPatch",
+        "type": "object"
+      },
+      "RunStatus": {
+        "enum": [
+          "running",
+          "paused",
+          "budget_exhausted",
+          "cancelled",
+          "done"
+        ],
+        "title": "RunStatus",
+        "type": "string"
       },
       "Source": {
         "enum": [
@@ -1309,6 +1701,230 @@
         ]
       }
     },
+    "/v1/exports/{export_id}": {
+      "get": {
+        "description": "The single-file HTML; `download=true` asks the browser to save it.",
+        "operationId": "download",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "export_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Export Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "download",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Download",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "409": {
+            "description": "the export failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download",
+        "tags": [
+          "export"
+        ]
+      }
+    },
+    "/v1/generation-runs/{run_id}": {
+      "get": {
+        "operationId": "progress",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Progress",
+        "tags": [
+          "generation"
+        ]
+      },
+      "patch": {
+        "operationId": "change",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change",
+        "tags": [
+          "generation"
+        ]
+      }
+    },
+    "/v1/generation-runs/{run_id}/nodes/{node_id}/retry": {
+      "post": {
+        "operationId": "retry_node",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry Node",
+        "tags": [
+          "generation"
+        ]
+      }
+    },
     "/v1/nodes/{node_id}": {
       "delete": {
         "operationId": "delete_node",
@@ -1623,6 +2239,55 @@
         ]
       }
     },
+    "/v1/nodes/{node_id}/notes": {
+      "get": {
+        "description": "The node's notes (design §10.1): version 0 and no content until the first update.",
+        "operationId": "node_notes",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Node Notes",
+        "tags": [
+          "nodes"
+        ]
+      }
+    },
     "/v1/topics": {
       "get": {
         "operationId": "list_topics",
@@ -1798,6 +2463,163 @@
         "summary": "Update Topic",
         "tags": [
           "topics"
+        ]
+      }
+    },
+    "/v1/topics/{topic_id}/export": {
+      "post": {
+        "description": "Renders the topic's notes now; `status` is done, or failed with `error`.",
+        "operationId": "export_topic",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Topic",
+        "tags": [
+          "export"
+        ]
+      }
+    },
+    "/v1/topics/{topic_id}/generation-runs": {
+      "post": {
+        "description": "409 when the topic already has a run in progress.",
+        "operationId": "start",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start",
+        "tags": [
+          "generation"
+        ]
+      }
+    },
+    "/v1/topics/{topic_id}/generation/estimate": {
+      "get": {
+        "description": "What \"generate all\" would cost, shown before the learner starts it.",
+        "operationId": "estimate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstimateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Estimate",
+        "tags": [
+          "generation"
         ]
       }
     },

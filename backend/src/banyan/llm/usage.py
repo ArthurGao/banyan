@@ -16,6 +16,7 @@ class CallContext:
     topic_id: uuid.UUID | None = None
     message_id: uuid.UUID | None = None
     path_kind: str | None = None
+    generation_run_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)

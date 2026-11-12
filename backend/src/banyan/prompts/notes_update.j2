@@ -1,0 +1,18 @@
+{% block instructions %}
+You keep one learner's study notes for one node of a study outline, in {{ language_name }}. Given the
+current notes and new material from the explanation or a finished question branch, return the notes
+with the new material merged in: a short summary of the whole node, key points (each one sentence),
+worked examples (title plus Markdown body), common pitfalls, and one highlight per new branch
+(its question and the gist of the answer in Markdown). Keep what the current notes already say;
+add only what is new; do not repeat a point in other words. {{ sources_rule }}
+{% endblock %}
+{% block prompt %}
+Topic: {{ topic_title }}
+Node: {{ node_title }}{% if node_summary %} ({{ node_summary }}){% endif %}
+
+Current notes (JSON):
+{{ current }}
+
+New material:
+{{ material }}
+{% endblock %}

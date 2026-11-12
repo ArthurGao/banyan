@@ -1,4 +1,4 @@
-"""`banyan` command line: serve, migrate, openapi. `worker` arrives with the job runtime (B2)."""
+"""`banyan` command line: serve, worker, migrate, openapi."""
 
 import json
 from pathlib import Path
@@ -29,6 +29,26 @@ def alembic_config(database_url: str, schema: str) -> Config:
 def serve(host: str = "127.0.0.1", port: int = 8800, reload: bool = False) -> None:
     """Run the HTTP API."""
     uvicorn.run("banyan.main:create_app", factory=True, host=host, port=port, reload=reload)
+
+
+@app.command()
+def worker() -> None:
+    """Run the job worker on its own (set BANYAN_RUN_WORKER=false on `banyan serve`)."""
+    import asyncio
+    import signal
+
+    from banyan.main import worker_context
+    from banyan.worker.run import run
+
+    async def main() -> None:
+        stop = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, stop.set)
+        async with worker_context(Settings()) as (_, ctx):
+            await run(ctx, stop)
+
+    asyncio.run(main())
 
 
 @app.command()

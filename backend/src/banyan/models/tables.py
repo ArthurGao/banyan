@@ -26,6 +26,7 @@ from banyan.models.enums import (
     BranchKind,
     ErrorKind,
     ExplainMode,
+    ExportStatus,
     Feedback,
     JobKind,
     JobStatus,
@@ -36,6 +37,7 @@ from banyan.models.enums import (
     NodeOrigin,
     NodeStatus,
     OutlineStatus,
+    RunStatus,
     Source,
     TopicStatus,
 )
@@ -143,11 +145,45 @@ class Message(Base):
     )
 
 
+class NodeNotes(Base):
+    """A node's study notes (design §10.1), the only source of the HTML export. `version` guards
+    concurrent updates; `incorporated` holds watermarks of what is already merged in."""
+
+    __tablename__ = "node_notes"
+
+    node_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), unique=True
+    )
+    content: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    version: Mapped[int] = mapped_column(Integer)
+    incorporated: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+
+
+class Export(Base):
+    """One rendered study guide (design §10.2) and the notes versions it was made from."""
+
+    __tablename__ = "exports"
+
+    topic_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("topics.id", ondelete="CASCADE"))
+    notes_versions: Mapped[dict[str, int]] = mapped_column(JSONB)
+    status: Mapped[ExportStatus] = mapped_column(enum_column(ExportStatus, "export_status"))
+    error: Mapped[str | None] = mapped_column(Text)
+    html: Mapped[str | None] = mapped_column(Text)
+
+
 class UsageLog(Base):
     """One row per LLM provider attempt, failed and retried ones included (design §4, §7.2)."""
 
     __tablename__ = "usage_log"
-    __table_args__ = (Index("ix_usage_log_topic_created", "topic_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_usage_log_topic_created", "topic_id", "created_at"),
+        # A run's tokens are summed before each of its nodes and on every progress read.
+        Index(
+            "ix_usage_log_generation_run",
+            "generation_run_id",
+            postgresql_where=text("generation_run_id IS NOT NULL"),
+        ),
+    )
 
     topic_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("topics.id", ondelete="SET NULL")
@@ -155,7 +191,12 @@ class UsageLog(Base):
     message_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("messages.id", ondelete="SET NULL")
     )
-    generation_run_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)  # FK arrives with B2
+    generation_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey(
+            "generation_runs.id", ondelete="SET NULL", name="usage_log_generation_run_id_fkey"
+        ),
+    )
     role: Mapped[str] = mapped_column(String(64))
     provider: Mapped[str] = mapped_column(String(64))
     model: Mapped[str] = mapped_column(String(200))
@@ -166,6 +207,30 @@ class UsageLog(Base):
     ok: Mapped[bool] = mapped_column(Boolean)
     error_kind: Mapped[ErrorKind | None] = mapped_column(enum_column(ErrorKind, "usage_error"))
     latency_ms: Mapped[int] = mapped_column(Integer)
+
+
+class GenerationRun(Base):
+    """One "generate all" (design §5.1.1): the nodes to explain, in outline order, and a budget.
+    Tokens used are summed from usage_log, never stored twice."""
+
+    __tablename__ = "generation_runs"
+    __table_args__ = (
+        # One unfinished run per topic (design §9: a second one is a 409).
+        Index(
+            "uq_generation_runs_one_active_per_topic",
+            "topic_id",
+            unique=True,
+            postgresql_where=text("status IN ('running', 'paused', 'budget_exhausted')"),
+        ),
+    )
+
+    topic_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("topics.id", ondelete="CASCADE"))
+    status: Mapped[RunStatus] = mapped_column(
+        enum_column(RunStatus, "run_status"), default=RunStatus.RUNNING
+    )
+    node_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(Uuid))
+    token_budget: Mapped[int] = mapped_column(Integer)
+    estimate: Mapped[dict[str, Any]] = mapped_column(JSONB)
 
 
 class Job(Base):

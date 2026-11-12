@@ -14,10 +14,11 @@ import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from banyan.config import Settings
 from banyan.errors import Conflict
 from banyan.llm import RoleClient, RoleError
 from banyan.models import (
@@ -39,6 +40,15 @@ from banyan.steward import StewardReader, collection_name
 
 log = logging.getLogger("banyan.answers")
 
+
+class AlreadyExplained(Conflict):
+    pass
+
+
+class AnswerStreaming(Conflict):
+    pass
+
+
 CHARS_PER_TOKEN = 4  # a rough estimate, enough to keep prompts inside a budget
 EXPLANATION_CONTEXT_CHARS = 3000
 
@@ -50,6 +60,22 @@ class Runtime:
     sessions: async_sessionmaker[AsyncSession]
     user_id: str
     history_budget: int
+    # The sweeper fails `streaming` answers untouched for this long; a running one touches its
+    # placeholder well within it, so only abandoned ones are swept (design §9).
+    stale_s: float = 600.0
+
+    @classmethod
+    def from_settings(
+        cls,
+        llm: RoleClient,
+        steward: StewardReader | None,
+        sessions: async_sessionmaker[AsyncSession],
+        settings: Settings,
+    ) -> "Runtime":
+        return cls(
+            llm, steward, sessions, settings.user_id, settings.history_budget,
+            settings.stream_stale_s,
+        )  # fmt: skip
 
 
 async def start_explain(s: AsyncSession, node_id: uuid.UUID) -> AskInput:
@@ -62,7 +88,7 @@ async def start_explain(s: AsyncSession, node_id: uuid.UUID) -> AskInput:
         s.add(main)
         await s.flush()
     elif await branches.explanation(s, node_id) is not None:
-        raise Conflict("the node is already explained")
+        raise AlreadyExplained("the node is already explained")
     placeholder = await _placeholder(s, main.id)
     topic = await topics.get_topic(s, node.topic_id)
     nodes = await outline.topic_nodes(s, node.topic_id)
@@ -119,6 +145,7 @@ async def _answer(
     async def end(status: MessageStatus) -> None:
         await record.ended(rt.sessions, inp.message_id, status, deps.usage, deps.path)
 
+    alive = asyncio.create_task(_keep_alive(rt, inp.message_id))
     try:
         result = await run_ask(inp, deps)
         commit = asyncio.ensure_future(record.done(rt.sessions, inp, result, deps.usage, deps.path))
@@ -148,7 +175,22 @@ async def _answer(
         await end(MessageStatus.FAILED)
         await queue.put(ErrorEvent("internal", "the answer failed; try again"))
     finally:
+        alive.cancel()
         queue.put_nowait(None)
+
+
+async def _keep_alive(rt: Runtime, message_id: uuid.UUID) -> None:
+    """Touches the placeholder while the answer runs, so the stale-stream sweeper (which fails
+    placeholders of processes that died) never takes a live one."""
+    while True:
+        await asyncio.sleep(rt.stale_s / 3)
+        async with rt.sessions() as s:
+            await s.execute(
+                update(Message)
+                .where(Message.id == message_id, Message.status == MessageStatus.STREAMING)
+                .values(updated_at=func.now())
+            )
+            await s.commit()
 
 
 async def _placeholder(s: AsyncSession, branch_id: uuid.UUID) -> uuid.UUID:
@@ -160,7 +202,7 @@ async def _placeholder(s: AsyncSession, branch_id: uuid.UUID) -> uuid.UUID:
         await s.commit()
     except IntegrityError as exc:
         await s.rollback()
-        raise Conflict("an answer is already streaming on this branch") from exc
+        raise AnswerStreaming("an answer is already streaming on this branch") from exc
     return message.id
 
 

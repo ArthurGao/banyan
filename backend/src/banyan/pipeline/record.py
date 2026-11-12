@@ -15,13 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from banyan.llm import UsageCollector
 from banyan.models import (
     ErrorKind,
-    Job,
     JobKind,
     Message,
     MessageStatus,
     Node,
     NodeStatus,
     UsageLog,
+    enqueue,
 )
 from banyan.pipeline.events import PathEntry
 from banyan.pipeline.types import AskInput, AskResult
@@ -43,13 +43,12 @@ async def done(
             return False
         add_usage(s, usage)
         for job in result.jobs:
-            s.add(
-                Job(
-                    kind=JobKind(job.kind),
-                    idempotency_key=job.idempotency_key,
-                    payload=job.payload,
-                    dedupe_key=job.dedupe_key,
-                )
+            await enqueue(
+                s,
+                JobKind(job.kind),
+                key=job.idempotency_key,
+                payload=job.payload,
+                dedupe_key=job.dedupe_key,
             )
         if inp.mode == "explain":
             # Opening an explanation starts the node (design §5.5).
@@ -103,6 +102,7 @@ def add_usage(s: AsyncSession, usage: UsageCollector) -> None:
                 input_tokens=r.input_tokens,
                 output_tokens=r.output_tokens,
                 path_kind=r.context.path_kind,
+                generation_run_id=r.context.generation_run_id,
                 ok=r.ok,
                 error_kind=ErrorKind(r.error_kind) if r.error_kind else None,
                 latency_ms=r.latency_ms,

@@ -29,6 +29,7 @@ class AskInput(BaseModel):
     mode: Mode
     question: str
     force_llm: bool = False  # allow_web arrives with the web tools (B4)
+    generation_run_id: uuid.UUID | None = None  # set by a "generate all" run (design §5.1.1)
     # Context, loaded by the caller
     topic_title: str
     goal: str | None

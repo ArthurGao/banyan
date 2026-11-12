@@ -7,7 +7,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from banyan.errors import NotFound
-from banyan.models import Branch, BranchKind, Message, MessageRole, MessageStatus
+from banyan.ids import uuid7
+from banyan.models import (
+    Branch,
+    BranchKind,
+    JobKind,
+    Message,
+    MessageRole,
+    MessageStatus,
+    enqueue,
+)
 from banyan.services.lookup import get_or_404
 from banyan.services.outline import get_node
 
@@ -46,6 +55,12 @@ async def update_branch(
         await get_node(s, node_id)
         branch.node_id = node_id
     if closed is not None:
+        if closed and branch.closed_at is None:
+            # A finished branch goes into the node's notes (design §5.4).
+            await enqueue(
+                s, JobKind.NOTES_UPDATE, key=f"notes_update:branch:{branch.id}:{uuid7()}",
+                payload={"node_id": str(branch.node_id)}, dedupe_key=f"notes:{branch.node_id}",
+            )  # fmt: skip
         branch.closed_at = datetime.now(UTC) if closed else None
     await s.commit()
     return branch
@@ -75,17 +90,24 @@ async def latest_answer(s: AsyncSession, branch_id: uuid.UUID) -> Message:
     return message
 
 
+# A node's explanation: the first committed assistant answer on its main branch (design §3 terms).
+MAIN_ANSWER = (Branch.kind == BranchKind.MAIN, Message.role == MessageRole.ASSISTANT)
+
+
 async def explanation(s: AsyncSession, node_id: uuid.UUID) -> Message | None:
-    """A node's explanation: the first committed answer on its main branch (design §3 terms)."""
     return await s.scalar(
         select(Message)
         .join(Branch, Branch.id == Message.branch_id)
-        .where(
-            Branch.node_id == node_id,
-            Branch.kind == BranchKind.MAIN,
-            Message.role == MessageRole.ASSISTANT,
-            Message.status == MessageStatus.DONE,
-        )
+        .where(Branch.node_id == node_id, Message.status == MessageStatus.DONE, *MAIN_ANSWER)
         .order_by(Message.created_at, Message.id)
         .limit(1)
     )
+
+
+async def explained_nodes(s: AsyncSession, node_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+    rows = await s.scalars(
+        select(Branch.node_id)
+        .join(Message, Message.branch_id == Branch.id)
+        .where(Branch.node_id.in_(node_ids), Message.status == MessageStatus.DONE, *MAIN_ANSWER)
+    )
+    return set(rows)
