@@ -1,7 +1,7 @@
 // The node page (design §11.2): the explanation first, generated on open when there is none
 // (§5.2); then the branches, and "ask here", which opens a new branch so the main line stays clean.
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight } from 'lucide-react'
+import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -37,6 +37,7 @@ function NodeView({ nodeId }: { nodeId: string }) {
   const confirmed = detail.topic.outline_status === 'confirmed'
   const here = detail.order.findIndex((n) => n.node.id === nodeId)
   const item = detail.order[here]
+  const prev = here > 0 ? detail.order[here - 1] : undefined
   const next = detail.order[here + 1]
 
   const refresh = () => refreshAfterAnswer(queryClient, { topicId, nodeId })
@@ -79,6 +80,11 @@ function NodeView({ nodeId }: { nodeId: string }) {
   return (
     <article className="mx-auto max-w-3xl" data-node={nodeId}>
       <header className="mb-5">
+        {/* Back to the topic overview (outline, explain mode, export), like the branch page's link to its node. */}
+        <Link to={`/topics/${topicId}`} className="mb-2 inline-flex min-h-9 items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="size-4" aria-hidden />
+          {detail.topic.title}
+        </Link>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <p className="eyebrow">
             {item?.number} · {t(`outline.status.${n.status}`)}
@@ -139,11 +145,27 @@ function NodeView({ nodeId }: { nodeId: string }) {
         <AskHere topicId={topicId} nodeId={nodeId} />
       </section>
 
-      {next && (
-        <Link to={`/topics/${topicId}/nodes/${next.node.id}`} className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-          <span className="font-mono">{next.number}</span> {next.node.title}
-          <ArrowRight className="size-4" aria-hidden />
-        </Link>
+      {(prev ?? next) && (
+        <nav aria-label={t('node.prevNext')} className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-t pt-4 text-sm">
+          {prev ? (
+            <Link to={`/topics/${topicId}/nodes/${prev.node.id}`} className="inline-flex min-h-11 min-w-0 items-center gap-2 text-muted-foreground hover:text-foreground">
+              <ArrowLeft className="size-4 shrink-0" aria-hidden />
+              <span className="truncate">
+                <span className="font-mono">{prev.number}</span> {prev.node.title}
+              </span>
+            </Link>
+          ) : (
+            <span />
+          )}
+          {next && (
+            <Link to={`/topics/${topicId}/nodes/${next.node.id}`} className="ml-auto inline-flex min-h-11 min-w-0 items-center gap-2 text-right text-muted-foreground hover:text-foreground">
+              <span className="truncate">
+                <span className="font-mono">{next.number}</span> {next.node.title}
+              </span>
+              <ArrowRight className="size-4 shrink-0" aria-hidden />
+            </Link>
+          )}
+        </nav>
       )}
     </article>
   )

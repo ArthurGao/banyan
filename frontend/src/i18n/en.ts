@@ -96,6 +96,7 @@ export const en: Messages = {
     askHere: 'Ask here',
     askPlaceholder: 'What is unclear about this node?',
     markDone: 'Mark as done',
+    prevNext: 'Previous and next node',
     markLearning: 'Mark as learning',
     closed: 'Closed',
     notConfirmed: 'Explanations are generated once the outline is confirmed.',

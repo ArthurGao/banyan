@@ -95,6 +95,7 @@ export const zh = {
     askHere: '在此提问',
     askPlaceholder: '对这一节有什么问题？',
     markDone: '标记为已完成',
+    prevNext: '上一节与下一节',
     markLearning: '标记为学习中',
     closed: '已关闭',
     notConfirmed: '大纲确认后才生成讲解。',
