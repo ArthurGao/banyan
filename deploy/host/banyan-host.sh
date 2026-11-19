@@ -14,8 +14,8 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-GATEWAY_DIR="${BANYAN_GATEWAY_DIR:-$HOME/Code/AI/llm-gateway}"
-STEWARD_DIR="${BANYAN_STEWARD_DIR:-$HOME/Code/AI/llm-steward/backend}"
+GATEWAY_DIR="${BANYAN_GATEWAY_DIR:-$HOME/Code/AI/lite-ai/llm-gateway}"
+STEWARD_DIR="${BANYAN_STEWARD_DIR:-$HOME/Code/AI/lite-ai/llm-steward/backend}"
 JOBS_DIR="$HOME/.local/share/banyan/launchd"
 LOGS="$HOME/Library/Logs/banyan"
 DOMAIN="gui/$(id -u)"

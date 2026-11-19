@@ -29,8 +29,8 @@ The only contract between backend and frontend is the backend's OpenAPI spec plu
 1. `docs/banyan-design.md` — the design. §3 architecture, §4 data model, §5 learning flow, §6 ask pipeline,
    §7 LLM role layer and models, §8 steward integration, §9 API and SSE, §10 notes and HTML export,
    §11 frontend, §12 stages and acceptance, §13 open questions.
-2. llm-steward (`~/Code/AI/llm-steward`): its OpenAPI spec and `docs/llm-steward-design.md` decide every
-   steward request and response. lite-rag (`~/Code/AI/lite-rag`) is reached only through steward.
+2. llm-steward (`~/Code/AI/lite-ai/llm-steward`): its OpenAPI spec and `docs/llm-steward-design.md` decide every
+   steward request and response. lite-rag (`~/Code/AI/lite-ai/lite-rag`) is reached only through steward.
 3. KB at `/Users/arthurgao/Docs/Knowledgebase` (write with the `kb-maintain` skill): project KB
    `projects/banyan/`; cross-project facts in `global/`.
 
