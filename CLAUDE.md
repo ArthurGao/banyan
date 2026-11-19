@@ -16,8 +16,8 @@
   (2) check a steward call against steward's OpenAPI spec and design §5–§7; (3) review the SSE contract
   between backend and frontend after either side changes it.
 - Never answer an llm-steward, lite-rag, Pydantic AI or search-API question from memory: read steward's
-  OpenAPI spec / `docs/llm-steward-design.md` (`~/Code/AI/llm-steward`), lite-rag's design
-  (`~/Code/AI/lite-rag`), or the pinned version's docs via context7. Record surprises in the KB.
+  OpenAPI spec / `docs/llm-steward-design.md` (`~/Code/AI/lite-ai/llm-steward`), lite-rag's design
+  (`~/Code/AI/lite-ai/lite-rag`), or the pinned version's docs via context7. Record surprises in the KB.
 - **Stage close-out** (`AGENTS.md` Workflow step 5). For **every** stage, once its code is done and every
   check passes, do these in order. Do not start the next stage, or plan it, before step 6.
   1. **Simplify.** Run `/simplify` on the stage's full diff and apply its fixes. Re-run every check
